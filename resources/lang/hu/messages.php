@@ -12,4 +12,8 @@ return [
     'unknown_option' => '„:value” nem megengedett érték, a lehetőségek: :options.',
     'invalid_domain' => '„:value” nem érvényes domainnév.',
     'currency_from_symbol' => 'A(z) „:value” pénznem értéke :code lett.',
+    'failed_rows' => [
+        'status_header' => 'Import státusz',
+        'message_header' => 'Import üzenet',
+    ],
 ];

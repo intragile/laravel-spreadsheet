@@ -12,4 +12,8 @@ return [
     'unknown_option' => '":value" is not one of the allowed options: :options.',
     'invalid_domain' => '":value" is not a valid domain name.',
     'currency_from_symbol' => 'Currency ":value" was read as :code.',
+    'failed_rows' => [
+        'status_header' => 'Import status',
+        'message_header' => 'Import message',
+    ],
 ];
