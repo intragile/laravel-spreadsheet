@@ -95,6 +95,38 @@ final class FailedRowsWriterTest extends TestCase
         $this->assertStringContainsString('Felülvizsgálat', (string) $csv);
     }
 
+    public function test_csv_escapes_formulas_but_not_signed_numbers(): void
+    {
+        Storage::fake('local');
+        $values = ['=1+1', '@SUM(A1)', '-A1', '+1-2+A1', "\tx", '-', '-12,5', '+36 1 234 5678', '-1 234.56', '+36 (30) 123-4567', 'plain'];
+
+        foreach ([Format::Csv, Format::Xlsx] as $format) {
+            $writer = new FailedRowsWriter(array_map(static fn (int $i): string => 'C'.$i, array_keys($values)), $format, [], ';');
+            $writer->write($values, RowStatus::Error, '=message');
+            $path = $writer->finish('local', 'out');
+            $this->assertNotNull($path);
+
+            $rows = $this->readBack((string) Storage::disk('local')->get($path), $format->value);
+            $expected = $format === Format::Csv
+                ? ["'=1+1", "'@SUM(A1)", "'-A1", "'+1-2+A1", "'\tx", "'-", '-12,5', '+36 1 234 5678', '-1 234.56', '+36 (30) 123-4567', 'plain', 'Error', "'=message"]
+                : [...$values, 'Error', '=message'];
+
+            $this->assertSame($expected, $rows[1], $format->value);
+        }
+    }
+
+    public function test_csv_uses_the_given_delimiter_and_a_byte_order_mark(): void
+    {
+        Storage::fake('local');
+
+        $writer = new FailedRowsWriter(['Név', 'Város'], Format::Csv, [], ';');
+        $writer->write(['Árvíztűrő', 'Győr'], RowStatus::Error, 'm');
+        $path = $writer->finish('local', 'out');
+        $this->assertNotNull($path);
+
+        $this->assertSame("\xEF\xBB\xBFNév;Város;\"Import status\";\"Import message\"\r\nÁrvíztűrő;Győr;Error;m\r\n", Storage::disk('local')->get($path));
+    }
+
     public function test_xls_input_is_written_as_xlsx(): void
     {
         Storage::fake('local');

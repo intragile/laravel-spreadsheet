@@ -12,6 +12,7 @@ use IntrAgile\LaravelSpreadsheet\Import\Pipeline\RowProcessor;
 use IntrAgile\LaravelSpreadsheet\Mapping\ColumnMapping;
 use IntrAgile\LaravelSpreadsheet\Mapping\ColumnMatch;
 use IntrAgile\LaravelSpreadsheet\Mapping\ValueProfile;
+use IntrAgile\LaravelSpreadsheet\Normalization\NormalizedValue;
 use IntrAgile\LaravelSpreadsheet\Normalization\NormalizerRegistry;
 use IntrAgile\LaravelSpreadsheet\Tests\Support\Models\Partner;
 use IntrAgile\LaravelSpreadsheet\Tests\TestCase;
@@ -209,5 +210,19 @@ final class RowProcessorTest extends TestCase
 
         $this->assertFalse($processor->process(1, [''])->isValid());
         $this->assertTrue($processor->process(1, [''], true)->isValid());
+    }
+
+    public function test_sensitive_field_messages_leave_the_value_out(): void
+    {
+        $import = $this->import([
+            Field::make('born', FieldType::Date)->label(['en' => 'Birth date'])->sensitive(),
+            Field::make('code')->label(['en' => 'Code'])->sensitive()->normalizeUsing(
+                static fn (mixed $value): NormalizedValue => NormalizedValue::error('Value :value is wrong.', ['value' => $value]),
+            ),
+        ]);
+
+        $row = $this->processor($import, [['born', null], ['code', null]])->process(2, ['31.31.2020', 'TOP-SECRET']);
+
+        $this->assertSame(['Birth date: Not a valid date.', 'Code: Value *** is wrong.'], $row->errors);
     }
 }

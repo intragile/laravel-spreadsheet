@@ -31,7 +31,7 @@ final class ChildMerger
      */
     public function merge(HasOneOrMany|MorphOneOrMany $relation, array $attributes, array $keys): ChildMergeOutcome
     {
-        $registry = $this->registry ?? new CanonicalizerRegistry;
+        $registry = $this->registry ?? app(CanonicalizerRegistry::class);
         $canonicalizers = array_map(
             static fn (Canonicalizer|string $c): Canonicalizer => $c instanceof Canonicalizer ? $c : $registry->for($c),
             $keys,

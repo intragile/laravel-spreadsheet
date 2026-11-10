@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace IntrAgile\LaravelSpreadsheet\Import\Runner;
 
 use Closure;
-use Exception;
 use Illuminate\Database\ConnectionInterface;
 use Illuminate\Database\DeadlockException;
 use Illuminate\Database\DetectsConcurrencyErrors;
@@ -218,8 +217,10 @@ final class ChunkImporter
                 $result = $this->connection->transaction(fn (): string => $existing === null
                     ? $this->create($row->values)
                     : $this->update($existing, $row->values));
-            } catch (Exception $e) {
-                // The database has rolled back the whole transaction: let the chunk start over.
+            } catch (Throwable $e) {
+                // Any throwable fails only its row, a TypeError or ValueError from a hook included.
+                // After a concurrency error the database has rolled back the whole transaction:
+                // let the chunk start over.
                 if ($this->isConcurrencyError($e)) {
                     throw $e;
                 }
@@ -299,7 +300,7 @@ final class ChunkImporter
     {
         try {
             $record->refresh();
-        } catch (Exception) {
+        } catch (Throwable) {
             // A record that cannot be reloaded is left as is; its own row is reported already.
         }
     }

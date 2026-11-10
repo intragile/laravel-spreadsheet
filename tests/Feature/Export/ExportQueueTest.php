@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace IntrAgile\LaravelSpreadsheet\Tests\Feature\Export;
 
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
@@ -99,6 +100,34 @@ final class ExportQueueTest extends ExportTestCase
             && $e->exportClass === FailingExport::class);
         Event::assertNotDispatched(ExportCompleted::class);
         $this->assertSame([], glob(sys_get_temp_dir().'/spreadsheet-export-*') ?: []);
+    }
+
+    public function test_database_failure_message_hides_sql_and_bindings(): void
+    {
+        config(['app.debug' => false]);
+        Storage::fake('exports');
+        Event::fake([ExportCompleted::class, ExportFailed::class]);
+
+        try {
+            (new BrokenQueryExport)->queue('out/broken.csv', 'exports');
+            $this->fail('The failure should propagate on the sync queue.');
+        } catch (QueryException) {
+        }
+
+        Event::assertDispatched(ExportFailed::class, static fn (ExportFailed $e): bool => $e->message === 'The export stopped because of a database error.');
+    }
+}
+
+final class BrokenQueryExport extends Export
+{
+    public function query(): Builder
+    {
+        return Partner::query()->whereRaw('no_such_function(name) = ?', ['SECRET-991']);
+    }
+
+    public function columns(): array
+    {
+        return [Column::make('Name')];
     }
 }
 

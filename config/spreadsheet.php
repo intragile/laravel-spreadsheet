@@ -24,6 +24,10 @@ return [
         // Rows per existing-record lookup query; keeps bindings under driver limits.
         'lookup_batch' => 500,
 
+        // Most cells an XLS workbook may hold (XLS is loaded whole into memory on every pass) or an
+        // ODS sheet may expand to through repeated cells and rows. Larger files are refused.
+        'max_cells' => 2_000_000,
+
         // Locales whose names are accepted for countries, languages and enum labels.
         'locales' => ['en'],
 

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace IntrAgile\LaravelSpreadsheet\Import\Pipeline;
 
 use Illuminate\Contracts\Validation\Factory as ValidationFactory;
+use Illuminate\Support\Facades\Lang;
 use IntrAgile\LaravelSpreadsheet\Import\Field;
 use IntrAgile\LaravelSpreadsheet\Import\Import;
 use IntrAgile\LaravelSpreadsheet\Mapping\ColumnMapping;
@@ -17,6 +18,11 @@ use IntrAgile\LaravelSpreadsheet\Normalization\NormalizerRegistry;
  */
 final class RowProcessor
 {
+    private const MESSAGES = 'spreadsheet::messages.';
+
+    /** Stands in for the value of a sensitive field in a message without a redacted variant. */
+    private const PLACEHOLDER = '***';
+
     /** @var array<string, Field> */
     private array $fields = [];
 
@@ -66,11 +72,11 @@ final class RowProcessor
 
             if ($result->error !== null) {
                 $failed[$field->key] = true;
-                $errors[] = $this->label($field).': '.$this->translate($result->error, $result->errorParams);
+                $errors[] = $this->label($field).': '.$this->translate($result->error, $result->errorParams, $field->isSensitive());
             }
 
             if ($result->warning !== null) {
-                $warnings[] = $this->label($field).': '.$this->translate($result->warning, $result->warningParams);
+                $warnings[] = $this->label($field).': '.$this->translate($result->warning, $result->warningParams, $field->isSensitive());
             }
         }
 
@@ -194,9 +200,26 @@ final class RowProcessor
         return $labels[app()->getLocale()] ?? $labels[Field::ANY_LOCALE] ?? $field->key;
     }
 
-    /** @param  array<string, mixed>  $params */
-    private function translate(string $key, array $params): string
+    /**
+     * Translates a normalizer message. For a sensitive field the cell value is left out: a
+     * shipped message switches to its variant without the value, any other message gets a
+     * placeholder in its place.
+     *
+     * @param  array<string, mixed>  $params
+     */
+    private function translate(string $key, array $params, bool $sensitive): string
     {
+        if ($sensitive && array_key_exists('value', $params)) {
+            unset($params['value']);
+            $redacted = str_starts_with($key, self::MESSAGES) ? self::MESSAGES.'redacted.'.substr($key, strlen(self::MESSAGES)) : null;
+
+            if ($redacted !== null && Lang::has($redacted)) {
+                $key = $redacted;
+            } else {
+                $params['value'] = self::PLACEHOLDER;
+            }
+        }
+
         $replace = [];
 
         foreach ($params as $name => $value) {

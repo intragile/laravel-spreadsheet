@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Storage;
 use IntrAgile\LaravelSpreadsheet\Import\Pipeline\RowStatus;
 use IntrAgile\Spreadsheet\Cell;
 use IntrAgile\Spreadsheet\Contracts\Writer;
+use IntrAgile\Spreadsheet\Csv\CsvWriter;
 use IntrAgile\Spreadsheet\Format;
 use IntrAgile\Spreadsheet\SheetOptions;
 use IntrAgile\Spreadsheet\Spreadsheet;
@@ -20,9 +21,22 @@ use Throwable;
  * Streams the rows that could not be imported into a file in the format of the upload: the
  * original headers, the original cell values and two trailing columns with status and message.
  * The file is created lazily, so an import without failures leaves nothing behind.
+ *
+ * A CSV file keeps the upload's delimiter and is written as UTF-8 with a byte order mark, so
+ * spreadsheet applications show accents correctly whatever the upload's encoding was. A text
+ * value that a spreadsheet application would evaluate (it starts with "=", "+", "-", "@", a tab
+ * or a carriage return) gets a leading apostrophe, unless it is a signed number or phone number:
+ * a sign followed only by digits, spaces and the characters . , ( ) / - cannot call a function
+ * or reference a cell, so "-12,5" and "+36 1 234 5678" stay as they are.
  */
 final class FailedRowsWriter
 {
+    /** First characters that make a spreadsheet application evaluate a field. */
+    private const FORMULA_TRIGGERS = "=+-@\t\r";
+
+    /** A signed number or phone number, harmless when evaluated. */
+    private const SIGNED_NUMBER = '~^[+-][\d .,()/\x{00A0}-]*\d[\d .,()/\x{00A0}-]*$~u';
+
     private ?Writer $writer = null;
 
     private ?string $base = null;
@@ -36,11 +50,13 @@ final class FailedRowsWriter
     /**
      * @param  list<string>  $headers  Original header texts, one per column.
      * @param  list<int>  $sensitiveColumns  Columns whose values are blanked.
+     * @param  string  $csvDelimiter  Field delimiter of a CSV file, normally the upload's.
      */
     public function __construct(
         private readonly array $headers,
         Format $format,
         private readonly array $sensitiveColumns,
+        private readonly string $csvDelimiter = ',',
     ) {
         $this->format = $format === Format::Xls ? Format::Xlsx : $format;
     }
@@ -56,8 +72,8 @@ final class FailedRowsWriter
             $line[] = in_array($column, $this->sensitiveColumns, true) ? null : $this->cell($cells[$column] ?? null);
         }
 
-        $line[] = Cell::text($status->label());
-        $line[] = Cell::text($message);
+        $line[] = $this->text($status->label());
+        $line[] = $this->text($message);
 
         $writer->addRow($line);
         $this->rows++;
@@ -120,12 +136,14 @@ final class FailedRowsWriter
         $this->path = $base.'.'.$this->format->value;
 
         try {
-            $writer = Spreadsheet::write($this->path, $this->format);
+            $writer = $this->format === Format::Csv
+                ? new CsvWriter($this->path, $this->csvDelimiter, bom: true)
+                : Spreadsheet::write($this->path, $this->format);
             $writer->sheet('Failed rows', new SheetOptions(freezeRows: 1, autoFilter: true));
             $writer->addRow([
-                ...array_map(static fn (string $header): Cell => Cell::text($header), $this->headers),
-                Cell::text((string) __('spreadsheet::messages.failed_rows.status_header')),
-                Cell::text((string) __('spreadsheet::messages.failed_rows.message_header')),
+                ...array_map(fn (string $header): Cell => $this->text($header), $this->headers),
+                $this->text((string) __('spreadsheet::messages.failed_rows.status_header')),
+                $this->text((string) __('spreadsheet::messages.failed_rows.message_header')),
             ]);
         } catch (Throwable $e) {
             $this->cleanup();
@@ -139,10 +157,25 @@ final class FailedRowsWriter
     private function cell(mixed $value): bool|DateTimeInterface|float|int|Cell|null
     {
         return match (true) {
-            is_string($value) => Cell::text($value),
+            is_string($value) => $this->text($value),
             $value === null, is_int($value), is_float($value), is_bool($value), $value instanceof DateTimeInterface => $value,
-            default => Cell::text($value instanceof Stringable ? (string) $value : ''),
+            default => $this->text($value instanceof Stringable ? (string) $value : ''),
         };
+    }
+
+    /** A text cell; in a CSV file a value that would be evaluated as a formula is escaped. */
+    private function text(string $value): Cell
+    {
+        return Cell::text($this->format === Format::Csv ? self::escapeFormula($value) : $value);
+    }
+
+    private static function escapeFormula(string $value): string
+    {
+        if ($value === '' || ! str_contains(self::FORMULA_TRIGGERS, $value[0]) || preg_match(self::SIGNED_NUMBER, $value) === 1) {
+            return $value;
+        }
+
+        return "'".$value;
     }
 
     private function cleanup(): void

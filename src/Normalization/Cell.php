@@ -4,13 +4,17 @@ declare(strict_types=1);
 
 namespace IntrAgile\LaravelSpreadsheet\Normalization;
 
+use DateTimeInterface;
 use IntrAgile\LaravelSpreadsheet\Support\AccentFolder;
 use Stringable;
 
 /** Shared reading helpers for raw cell values. */
 final class Cell
 {
-    /** The trimmed text of a scalar cell, or null when the cell is empty. */
+    /**
+     * The trimmed text of a scalar cell, or null when the cell is empty. A date cell reads as
+     * "Y-m-d", or "Y-m-d H:i:s" when it carries a time of day.
+     */
     public static function text(mixed $value): ?string
     {
         $text = match (true) {
@@ -19,6 +23,7 @@ final class Cell
             is_bool($value) => $value ? '1' : '0',
             is_int($value) => (string) $value,
             is_float($value) => self::floatText($value),
+            $value instanceof DateTimeInterface => $value->format($value->format('His') === '000000' ? 'Y-m-d' : 'Y-m-d H:i:s'),
             $value instanceof Stringable => (string) $value,
             default => '',
         };

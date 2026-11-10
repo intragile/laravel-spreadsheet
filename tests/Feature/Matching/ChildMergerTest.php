@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace IntrAgile\LaravelSpreadsheet\Tests\Feature\Matching;
 
+use IntrAgile\LaravelSpreadsheet\Matching\CanonicalizerRegistry;
+use IntrAgile\LaravelSpreadsheet\Matching\Canonicalizers\EmailCanonicalizer;
 use IntrAgile\LaravelSpreadsheet\Matching\ChildMergeOutcome;
 use IntrAgile\LaravelSpreadsheet\Matching\ChildMerger;
 use IntrAgile\LaravelSpreadsheet\Tests\Support\Models\Contact;
@@ -117,5 +119,16 @@ final class ChildMergerTest extends TestCase
     {
         $this->assertSame(ChildMergeOutcome::Unchanged, $this->merge(['name' => 'A']));
         $this->assertSame(0, Contact::query()->count());
+    }
+
+    public function test_default_registry_comes_from_the_container(): void
+    {
+        app(CanonicalizerRegistry::class)->extend('work_email', new EmailCanonicalizer);
+        $this->partner->contacts()->create(['name' => 'A', 'email' => 'anna@example.hu']);
+
+        $outcome = (new ChildMerger)->merge($this->partner->contacts(), ['name' => 'A', 'email' => 'ANNA@example.hu', 'phone' => '+36 30 123 4567'], ['email' => 'work_email']);
+
+        $this->assertSame(ChildMergeOutcome::Filled, $outcome);
+        $this->assertSame(1, $this->partner->contacts()->count());
     }
 }

@@ -16,6 +16,7 @@ use IntrAgile\LaravelSpreadsheet\Mapping\Templates\MappingTemplateStore;
 use IntrAgile\LaravelSpreadsheet\Support\HeaderNormalizer;
 use IntrAgile\Spreadsheet\Inspection\FileInspector;
 use IntrAgile\Spreadsheet\Inspection\Inspection;
+use IntrAgile\Spreadsheet\ReadOptions;
 use IntrAgile\Spreadsheet\Spreadsheet;
 use InvalidArgumentException;
 
@@ -36,9 +37,10 @@ final class MappingResolver
 
     public function resolve(Import $import, string $localPath, ImportOptions $options): ResolvedSource
     {
-        $inspection = FileInspector::inspect($localPath);
+        $readOptions = ReaderOptions::fromConfig();
+        $inspection = FileInspector::inspect($localPath, $readOptions);
         $sheet = $options->sheet ?? $inspection->firstDataSheet ?? 0;
-        [$headerRow, $headers, $samples] = $this->scan($localPath, $inspection, $sheet, $options->headerRow ?? $this->detectedHeaderRow($inspection, $sheet));
+        [$headerRow, $headers, $samples] = $this->scan($localPath, $readOptions, $inspection, $sheet, $options->headerRow ?? $this->detectedHeaderRow($inspection, $sheet));
 
         $ignored = HeaderFingerprint::ignoredHeaders();
         $skip = array_flip($ignored);
@@ -82,9 +84,9 @@ final class MappingResolver
      *
      * @return array{0: int, 1: list<string>, 2: array<int, list<mixed>>}
      */
-    private function scan(string $localPath, Inspection $inspection, int|string $sheet, ?int $headerRow): array
+    private function scan(string $localPath, ReadOptions $readOptions, Inspection $inspection, int|string $sheet, ?int $headerRow): array
     {
-        $reader = Spreadsheet::read($localPath, null, $inspection->format);
+        $reader = Spreadsheet::read($localPath, $readOptions, $inspection->format);
         $headerCells = [];
         $samples = [];
         $rows = 0;

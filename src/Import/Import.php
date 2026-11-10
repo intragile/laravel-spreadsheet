@@ -83,16 +83,20 @@ abstract class Import
 
     /**
      * Writes the canonical values onto the record. For an existing record under the
-     * FillMissing policy only blank attributes are written.
+     * FillMissing policy only blank attributes are written; under the Overwrite policy a blank
+     * cell (a null value) keeps the stored attribute. To clear attributes from blank cells,
+     * use a callback policy or override this method.
      *
      * @param  array<string, mixed>  $values  Keyed by field key.
      */
     public function fill(Model $record, array $values, bool $exists): void
     {
-        $onlyBlank = $exists && $this->onMatch() === MatchPolicy::FillMissing;
+        $policy = $exists ? $this->onMatch() : null;
+        $onlyBlank = $policy === MatchPolicy::FillMissing;
+        $skipNull = $policy === MatchPolicy::Overwrite;
 
         foreach ($this->fields() as $field) {
-            if (! array_key_exists($field->key, $values)) {
+            if (! array_key_exists($field->key, $values) || ($skipNull && $values[$field->key] === null)) {
                 continue;
             }
 

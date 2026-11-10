@@ -10,6 +10,7 @@ use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use IntrAgile\LaravelSpreadsheet\Events\ExportCompleted;
 use IntrAgile\LaravelSpreadsheet\Events\ExportFailed;
+use IntrAgile\LaravelSpreadsheet\Import\Runner\ErrorMessage;
 use Throwable;
 
 /**
@@ -38,7 +39,7 @@ final class ExportJob implements ShouldQueue
 
     public function failed(Throwable $exception): void
     {
-        event(new ExportFailed($this->diskName(), $this->path, $this->export::class, $exception->getMessage()));
+        event(new ExportFailed($this->diskName(), $this->path, $this->export::class, ErrorMessage::for($exception, 'export_database_failure')));
     }
 
     private function diskName(): string

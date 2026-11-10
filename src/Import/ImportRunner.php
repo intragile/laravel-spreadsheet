@@ -13,6 +13,7 @@ use IntrAgile\LaravelSpreadsheet\Import\Pipeline\RowProcessor;
 use IntrAgile\LaravelSpreadsheet\Import\Runner\ChunkImporter;
 use IntrAgile\LaravelSpreadsheet\Import\Runner\ImportOptions;
 use IntrAgile\LaravelSpreadsheet\Import\Runner\MappingResolver;
+use IntrAgile\LaravelSpreadsheet\Import\Runner\ReaderOptions;
 use IntrAgile\LaravelSpreadsheet\Import\Runner\ResolvedSource;
 use IntrAgile\LaravelSpreadsheet\Mapping\ColumnMapping;
 use IntrAgile\LaravelSpreadsheet\Mapping\Templates\MappingTemplate;
@@ -20,6 +21,9 @@ use IntrAgile\LaravelSpreadsheet\Mapping\Templates\MappingTemplateStore;
 use IntrAgile\LaravelSpreadsheet\Matching\MatchKey;
 use IntrAgile\LaravelSpreadsheet\Matching\SqliteKeyStore;
 use IntrAgile\LaravelSpreadsheet\Normalization\NormalizerRegistry;
+use IntrAgile\Spreadsheet\Csv\CsvSniffer;
+use IntrAgile\Spreadsheet\Exception\LimitExceeded;
+use IntrAgile\Spreadsheet\Format;
 use IntrAgile\Spreadsheet\Spreadsheet;
 use RuntimeException;
 use Throwable;
@@ -78,7 +82,12 @@ final class ImportRunner
     private function import(Import $import, string $local, ResolvedSource $source, ImportOptions $options): ImportResult
     {
         $mapping = $source->mapping;
-        $failedRows = new FailedRowsWriter($source->headers, $source->format, $this->sensitiveColumns($import, $mapping));
+        $failedRows = new FailedRowsWriter(
+            $source->headers,
+            $source->format,
+            $this->sensitiveColumns($import, $mapping),
+            $source->format === Format::Csv ? (new CsvSniffer)->sniff($local)->delimiter : ',',
+        );
         $keys = $import->matchRules() === [] ? null : new SqliteKeyStore;
         $chunkSize = max(1, $options->chunkSize ?? config()->integer('spreadsheet.import.chunk_size', 500));
         $class = $import->model();
@@ -93,7 +102,7 @@ final class ImportRunner
                 (new $class)->getConnection(),
             );
 
-            $reader = Spreadsheet::read($local, null, $source->format);
+            $reader = Spreadsheet::read($local, ReaderOptions::fromConfig(), $source->format);
 
             try {
                 $chunk = [];
@@ -196,7 +205,7 @@ final class ImportRunner
     private function withLocalFile(string $path, ?string $disk, callable $callback): mixed
     {
         if ($disk === null) {
-            return $callback($path);
+            return $this->explainingLimits(static fn (): mixed => $callback($path));
         }
 
         $local = tempnam(sys_get_temp_dir(), self::TEMP_PREFIX);
@@ -208,11 +217,32 @@ final class ImportRunner
         try {
             $this->copy($disk, $path, $local);
 
-            return $callback($local);
+            return $this->explainingLimits(static fn (): mixed => $callback($local));
         } finally {
             if (is_file($local)) {
                 unlink($local);
             }
+        }
+    }
+
+    /**
+     * Names the setting behind the cell limit when a file exceeds a reader safety limit.
+     *
+     * @template T
+     *
+     * @param  callable(): T  $callback
+     * @return T
+     */
+    private function explainingLimits(callable $callback): mixed
+    {
+        try {
+            return $callback();
+        } catch (LimitExceeded $e) {
+            throw new LimitExceeded(
+                sprintf('The file exceeds a safety limit and was not imported: %s The cell limit is set by spreadsheet.import.max_cells (now %d).', $e->getMessage(), ReaderOptions::maxCells()),
+                0,
+                $e,
+            );
         }
     }
 
