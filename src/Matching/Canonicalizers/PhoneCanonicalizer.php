@@ -23,7 +23,7 @@ final class PhoneCanonicalizer implements Canonicalizer
         return $key === '' ? null : $key;
     }
 
-    public function prefilter(EloquentBuilder|Builder $query, string $column, array $keys): void
+    public function prefilter(EloquentBuilder|Builder $query, string $column, array $keys, array $rawValues = []): void
     {
         $this->whereExpressionIn(
             $query,

@@ -70,10 +70,10 @@ final class DomainCanonicalizer implements Canonicalizer
         }
     }
 
-    public function prefilter(EloquentBuilder|Builder $query, string $column, array $keys): void
+    public function prefilter(EloquentBuilder|Builder $query, string $column, array $keys, array $rawValues = []): void
     {
         $withWww = array_merge($keys, array_map(static fn (string $key): string => 'www.'.$key, $keys));
 
-        $this->whereExpressionIn($query, $column, $withWww, fn (string $c): string => "lower({$c})");
+        $this->whereExpressionIn($query, $column, $withWww, fn (string $c): string => "lower({$c})", $rawValues);
     }
 }

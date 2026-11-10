@@ -188,8 +188,25 @@ final class CanonicalizersTest extends TestCase
 
         $this->assertSame(
             ['  Győr ', 'győr'],
-            $this->prefiltered(new TextCanonicalizer, 'city', ['  GYŐR']),
+            $this->prefiltered(new TextCanonicalizer, 'city', ['gyor'], ['  GYŐR']),
         );
+    }
+
+    public function test_text_prefilter_finds_non_ascii_upper_case_by_exact_raw_value(): void
+    {
+        $this->seedPartners('city', ['GYŐR', 'Pécs']);
+
+        $this->assertSame(['GYŐR'], $this->prefiltered(new TextCanonicalizer, 'city', ['gyor'], ['GYŐR']));
+    }
+
+    public function test_prefilter_with_hostile_raw_value_is_inert(): void
+    {
+        $this->seedPartners('city', ['Győr']);
+        $hostile = "x' OR 1=1 -- ? % _ \\";
+
+        foreach ([new TextCanonicalizer, new EmailCanonicalizer, new DomainCanonicalizer] as $c) {
+            $this->assertSame([], $this->prefiltered($c, 'city', [(string) $c->canonicalize($hostile)], [$hostile]));
+        }
     }
 
     public function test_prefilter_with_no_keys_matches_nothing(): void
@@ -222,12 +239,13 @@ final class CanonicalizersTest extends TestCase
 
     /**
      * @param  list<string>  $keys
+     * @param  list<string>  $raw
      * @return list<string>
      */
-    private function prefiltered(Canonicalizer $canonicalizer, string $column, array $keys): array
+    private function prefiltered(Canonicalizer $canonicalizer, string $column, array $keys, array $raw = []): array
     {
         $query = Partner::query()->orderBy('id');
-        $canonicalizer->prefilter($query, $column, $keys);
+        $canonicalizer->prefilter($query, $column, $keys, $raw);
 
         /** @var list<string> $values */
         $values = $query->pluck($column)->all();

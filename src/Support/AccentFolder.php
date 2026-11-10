@@ -25,13 +25,20 @@ final class AccentFolder
         'Œ' => 'OE', 'œ' => 'oe', 'Ŧ' => 'T', 'ŧ' => 't', 'ſ' => 's',
     ];
 
+    /**
+     * Combining marks are removed only after a Latin letter, so marks that carry meaning in
+     * other scripts (Devanagari, Thai, Arabic, Hebrew, Hangul jamo) are left untouched.
+     * Precomposed Latin letters outside the table fold only when ext-intl is loaded.
+     */
     public static function fold(string $value): string
     {
         if (class_exists(\Normalizer::class)) {
             $decomposed = \Normalizer::normalize($value, \Normalizer::FORM_D);
 
             if (is_string($decomposed)) {
-                return strtr((string) preg_replace('/\p{Mn}/u', '', $decomposed), self::STANDALONE);
+                $recomposed = \Normalizer::normalize(self::stripLatinMarks($decomposed), \Normalizer::FORM_C);
+
+                return strtr(is_string($recomposed) ? $recomposed : $decomposed, self::STANDALONE);
             }
         }
 
@@ -41,6 +48,11 @@ final class AccentFolder
     /** Table-only folding; the fallback used when ext-intl is missing. */
     public static function foldWithTable(string $value): string
     {
-        return strtr($value, self::DECOMPOSABLE + self::STANDALONE);
+        return self::stripLatinMarks(strtr($value, self::DECOMPOSABLE + self::STANDALONE));
+    }
+
+    private static function stripLatinMarks(string $value): string
+    {
+        return (string) preg_replace('/(?<=\p{Latin})\p{Mn}+/u', '', $value);
     }
 }

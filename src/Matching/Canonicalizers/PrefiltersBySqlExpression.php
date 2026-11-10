@@ -17,19 +17,36 @@ trait PrefiltersBySqlExpression
      * @param  EloquentBuilder<*>|Builder  $query
      * @param  list<string>  $keys
      * @param  callable(string): string  $expression  Receives the wrapped column.
+     * @param  list<string>  $exactValues  Additionally matched verbatim against the column.
      */
-    private function whereExpressionIn(EloquentBuilder|Builder $query, string $column, array $keys, callable $expression): void
+    private function whereExpressionIn(EloquentBuilder|Builder $query, string $column, array $keys, callable $expression, array $exactValues = []): void
     {
-        if ($keys === []) {
+        $exactValues = array_values(array_unique(array_filter(
+            array_map('trim', $exactValues),
+            static fn (string $value): bool => $value !== '',
+        )));
+
+        if ($keys === [] && $exactValues === []) {
             $query->whereRaw(new RawSql('1 = 0'));
 
             return;
         }
 
         $base = $query instanceof EloquentBuilder ? $query->getQuery() : $query;
-        $sql = $expression($base->getGrammar()->wrap($column));
+        $wrapped = $base->getGrammar()->wrap($column);
+        $marks = static fn (array $values): string => implode(', ', array_fill(0, count($values), '?'));
 
-        $query->whereRaw(new RawSql($sql.' in ('.implode(', ', array_fill(0, count($keys), '?')).')'), $keys);
+        $parts = [];
+
+        if ($keys !== []) {
+            $parts[] = $expression($wrapped).' in ('.$marks($keys).')';
+        }
+
+        if ($exactValues !== []) {
+            $parts[] = $wrapped.' in ('.$marks($exactValues).')';
+        }
+
+        $query->whereRaw(new RawSql('('.implode(' or ', $parts).')'), [...$keys, ...$exactValues]);
     }
 
     /** Nests REPLACE(…, char, '') calls around the expression for every listed character. */

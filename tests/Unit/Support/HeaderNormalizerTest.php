@@ -21,6 +21,7 @@ final class HeaderNormalizerTest extends TestCase
             ['', ''],
             ['   ', ''],
             ['*** / ***', ''],
+            ['İstanbul', 'istanbul'],
         ];
     }
 

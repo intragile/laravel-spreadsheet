@@ -49,4 +49,37 @@ final class AccentFolderTest extends TestCase
             $this->assertSame(AccentFolder::foldWithTable($char), AccentFolder::fold($char), 'U+'.dechex($code));
         }
     }
+
+    public function test_nfd_input_folds_identically_on_both_paths(): void
+    {
+        $nfd = "Cafe\u{0301} Ku\u{0308}lo\u{030B}n";
+
+        $this->assertSame('Cafe Kulon', AccentFolder::foldWithTable($nfd));
+
+        if (extension_loaded('intl')) {
+            $this->assertSame('Cafe Kulon', AccentFolder::fold($nfd));
+        }
+    }
+
+    public function test_non_latin_scripts_are_unchanged_by_both_paths(): void
+    {
+        foreach (['हिन्दी कि', 'สวัสดี', 'مَرْحَبًا', 'שָׁלוֹם', '한국어 한글'] as $text) {
+            $this->assertSame($text, AccentFolder::foldWithTable($text));
+
+            if (extension_loaded('intl')) {
+                $this->assertSame($text, AccentFolder::fold($text));
+            }
+        }
+    }
+
+    public function test_dotted_capital_i_folds_on_both_paths(): void
+    {
+        $lowered = mb_strtolower('İstanbul');
+
+        $this->assertSame('istanbul', AccentFolder::foldWithTable($lowered));
+
+        if (extension_loaded('intl')) {
+            $this->assertSame('istanbul', AccentFolder::fold($lowered));
+        }
+    }
 }
