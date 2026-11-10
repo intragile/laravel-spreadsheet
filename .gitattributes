@@ -1,5 +1,8 @@
 * text=auto eol=lf
 
+# Import fixtures keep their exact bytes (encoding and CRLF line endings are part of the test).
+/tests/fixtures/*.csv -text
+
 # Development files are left out of the Composer dist archive.
 /.github            export-ignore
 /tests              export-ignore
