@@ -149,6 +149,11 @@ final class DateNormalizerTest extends TestCase
         $this->assertSame('2026-09-14 12:00:00', $this->format($result, 'Y-m-d H:i:s'));
     }
 
+    public function test_serial_just_before_midnight_stays_on_the_same_day(): void
+    {
+        $this->assertSame('2026-09-14', $this->format($this->date(46279.999999), 'Y-m-d'));
+    }
+
     public function test_out_of_range_serial_is_invalid(): void
     {
         $this->assertSame('spreadsheet::messages.invalid_date', $this->date(-5)->error);

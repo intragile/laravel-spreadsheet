@@ -71,6 +71,21 @@ final class BooleanNormalizerTest extends TestCase
         $this->assertSame('spreadsheet::messages.invalid_boolean', $this->normalize('igen')->error);
     }
 
+    public function test_word_tables_are_not_rebuilt_per_cell(): void
+    {
+        $normalizer = new BooleanNormalizer;
+        $field = Field::make('b', FieldType::Boolean);
+        $context = new NormalizationContext;
+
+        $this->assertTrue($normalizer->normalize('igen', $field, $context)->value);
+
+        $property = new \ReflectionProperty($normalizer, 'tables');
+        $before = $property->getValue($normalizer);
+        $normalizer->normalize('nem', $field, $context);
+
+        $this->assertSame($before, $property->getValue($normalizer));
+    }
+
     private function normalize(mixed $cell): NormalizedValue
     {
         return (new BooleanNormalizer)->normalize($cell, Field::make('b', FieldType::Boolean), new NormalizationContext);

@@ -53,6 +53,37 @@ final class CountryNormalizerTest extends TestCase
         $this->assertSame('spreadsheet::messages.unknown_value', $this->country('Ungarn')->error);
     }
 
+    /** @return array<string, array{string, string}> */
+    public static function commonNames(): array
+    {
+        $names = [
+            'Turkey' => 'TR', 'Türkiye' => 'TR', 'Bosnia and Herzegovina' => 'BA', 'Bosnia & Herzegovina' => 'BA',
+            'Ivory Coast' => 'CI', "Côte d'Ivoire" => 'CI', 'Côte d’Ivoire' => 'CI',
+            'Burma' => 'MM', 'Myanmar' => 'MM', 'Myanmar (Burma)' => 'MM', 'Swaziland' => 'SZ', 'Eswatini' => 'SZ',
+            'South Korea' => 'KR', 'Republic of Korea' => 'KR', 'North Korea' => 'KP', 'Russia' => 'RU',
+            'Vietnam' => 'VN', 'Laos' => 'LA', 'Syria' => 'SY', 'Iran' => 'IR', 'Moldova' => 'MD',
+            'Macedonia' => 'MK', 'North Macedonia' => 'MK', 'Cape Verde' => 'CV', 'Czech Republic' => 'CZ',
+            'Czechia' => 'CZ', 'Holland' => 'NL', 'UK' => 'GB', 'USA' => 'US', 'United States of America' => 'US',
+            'Great Britain' => 'GB', 'Vatican' => 'VA', 'Vatican City' => 'VA', 'Palestine' => 'PS',
+            'DR Congo' => 'CD', 'Democratic Republic of the Congo' => 'CD', 'Congo - Kinshasa' => 'CD',
+            'Republic of the Congo' => 'CG', 'Trinidad and Tobago' => 'TT', 'Antigua and Barbuda' => 'AG',
+            'Cocos (Keeling) Islands' => 'CC', 'Cocos Islands' => 'CC',
+        ];
+        $cases = [];
+
+        foreach ($names as $name => $code) {
+            $cases[$name] = [$name, $code];
+        }
+
+        return $cases;
+    }
+
+    #[DataProvider('commonNames')]
+    public function test_common_english_names_resolve(string $name, string $code): void
+    {
+        $this->assertSame($code, $this->country($name)->value);
+    }
+
     public function test_unknown_values_are_errors(): void
     {
         foreach (['ZZ', 'Narnia', 'XXX'] as $text) {

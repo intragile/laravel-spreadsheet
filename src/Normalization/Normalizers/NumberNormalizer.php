@@ -22,6 +22,9 @@ use IntrAgile\LaravelSpreadsheet\Normalization\Normalizer;
  */
 final class NumberNormalizer implements Normalizer
 {
+    /** @var array<string, string>|null */
+    private static ?array $currencies = null;
+
     public function normalize(mixed $value, Field $field, NormalizationContext $context): NormalizedValue
     {
         $text = Cell::text($value);
@@ -50,14 +53,26 @@ final class NumberNormalizer implements Normalizer
 
     private function parse(string $text, NormalizationContext $context): ?string
     {
+        $text = preg_replace('/[\x{2012}-\x{2015}\x{2212}\x{FE63}\x{FF0D}]/u', '-', $text) ?? $text;
         $text = preg_replace('/[\s\x{00A0}\x{2009}\x{202F}\x{2019}\']+/u', '', $text) ?? $text;
-        $text = preg_replace('/^[^\d+\-.,]+|[^\d.,]+$/u', '', $text) ?? $text;
+        $accounting = preg_match('/^\((.*)\)$/u', $text, $paren) === 1;
+        $text = $accounting ? $paren[1] : $text;
 
-        if (preg_match('/^([+-]?)([\d.,]+)$/', $text, $m) !== 1) {
+        $affix = '(\p{Sc}+|\p{L}{1,3})?';
+
+        if (preg_match('/^([+-]?)'.$affix.'([+-]?)([\d.,]+)([+-]?)'.$affix.'([+-]?)$/u', $text, $m, PREG_UNMATCHED_AS_NULL) !== 1) {
             return null;
         }
 
-        [$sign, $body] = [$m[1], $m[2]];
+        $signs = $m[1].$m[3].$m[5].$m[7];
+
+        if (strlen($signs) > 1 || ($accounting && $signs !== '') || ! $this->isAffix($m[2]) || ! $this->isAffix($m[6])) {
+            return null;
+        }
+
+        $sign = $accounting ? '-' : $signs;
+        $body = (string) $m[4];
+
         $configured = $context->decimalSeparator;
         $decimal = $configured === ',' || $configured === '.' ? $configured : $this->inferDecimal($body);
 
@@ -88,6 +103,23 @@ final class NumberNormalizer implements Normalizer
         }
 
         return self::canonical($sign.($integerPart === '' ? '0' : $integerPart).($fraction === '' ? '' : '.'.$fraction));
+    }
+
+    /** A currency symbol, a currency code, or a short unit token such as "Ft" or "kr". */
+    private function isAffix(?string $token): bool
+    {
+        return $token === null || ! preg_match('/^\p{L}{3}$/u', $token) || self::isCurrencyCode($token);
+    }
+
+    private static function isCurrencyCode(string $token): bool
+    {
+        if (self::$currencies === null) {
+            /** @var array<string, string> $loaded */
+            $loaded = require __DIR__.'/../../../resources/data/currencies.php';
+            self::$currencies = $loaded;
+        }
+
+        return isset(self::$currencies[mb_strtoupper($token)]);
     }
 
     /**

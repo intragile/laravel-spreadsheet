@@ -54,30 +54,37 @@ final class Cell
     /** Lower case, accent-folded, single-spaced form used to compare names and words. */
     public static function fold(string $value): string
     {
-        $value = preg_replace('/\s+/u', ' ', trim($value)) ?? $value;
+        $value = str_replace(['’', '‘', '`', '´', 'ʼ'], "'", $value);
+        $value = preg_replace(['/\s+/u', '/\s*&\s*/u'], [' ', ' and '], trim($value)) ?? $value;
 
         return mb_strtolower(AccentFolder::fold($value));
     }
 
+    /** @var array<string, array{raw: mixed, table: array<string, string>}> */
+    private static array $aliases = [];
+
     /**
-     * Looks a folded name up in an alias table from the config, whose keys are folded on the fly.
+     * Looks a folded name up in an alias table from the config. The table is folded once and
+     * rebuilt only when the configured value changes.
      *
      * @param  'country'|'currency'|'language'  $kind
      */
     public static function alias(string $folded, string $kind): ?string
     {
-        $aliases = config('spreadsheet.import.aliases.'.$kind, []);
+        $raw = config('spreadsheet.import.aliases.'.$kind, []);
 
-        if (! is_array($aliases)) {
-            return null;
-        }
+        if (! isset(self::$aliases[$kind]) || self::$aliases[$kind]['raw'] !== $raw) {
+            $table = [];
 
-        foreach ($aliases as $name => $target) {
-            if (is_string($target) && self::fold((string) $name) === $folded) {
-                return $target;
+            foreach (is_array($raw) ? $raw : [] as $name => $target) {
+                if (is_string($target)) {
+                    $table[self::fold((string) $name)] = $target;
+                }
             }
+
+            self::$aliases[$kind] = ['raw' => $raw, 'table' => $table];
         }
 
-        return null;
+        return self::$aliases[$kind]['table'][$folded] ?? null;
     }
 }

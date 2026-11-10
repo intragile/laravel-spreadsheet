@@ -13,8 +13,8 @@ use IntrAgile\LaravelSpreadsheet\Normalization\Normalizer;
 /** Accepts native booleans, 1/0 and the accent-insensitive words of spreadsheet.import.boolean. */
 final class BooleanNormalizer implements Normalizer
 {
-    /** @var array<string, array{true: array<string, true>, false: array<string, true>}> */
-    private array $words = [];
+    /** @var array{raw: array{mixed, mixed}, words: array{true: array<string, true>, false: array<string, true>}}|null */
+    private ?array $tables = null;
 
     public function normalize(mixed $value, Field $field, NormalizationContext $context): NormalizedValue
     {
@@ -45,14 +45,16 @@ final class BooleanNormalizer implements Normalizer
     /** @return array{true: array<string, true>, false: array<string, true>} */
     private function words(): array
     {
-        $true = (array) config('spreadsheet.import.boolean.true', []);
-        $false = (array) config('spreadsheet.import.boolean.false', []);
-        $signature = serialize([$true, $false]);
+        $raw = [config('spreadsheet.import.boolean.true', []), config('spreadsheet.import.boolean.false', [])];
 
-        return $this->words[$signature] ??= [
-            'true' => self::set($true),
-            'false' => self::set($false),
-        ];
+        if ($this->tables === null || $this->tables['raw'] !== $raw) {
+            $this->tables = ['raw' => $raw, 'words' => [
+                'true' => self::set((array) $raw[0]),
+                'false' => self::set((array) $raw[1]),
+            ]];
+        }
+
+        return $this->tables['words'];
     }
 
     /**

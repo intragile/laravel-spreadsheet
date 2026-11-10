@@ -116,7 +116,7 @@ final class DateNormalizer implements Normalizer
         }
 
         $days = (int) floor($serial);
-        $seconds = (int) round(($serial - $days) * 86400);
+        $seconds = min(86399, (int) round(($serial - $days) * 86400));
         $epoch = $days < 61 ? '1899-12-31' : '1899-12-30';
 
         return CarbonImmutable::parse($epoch.' 00:00:00')->addDays($days)->addSeconds($seconds);

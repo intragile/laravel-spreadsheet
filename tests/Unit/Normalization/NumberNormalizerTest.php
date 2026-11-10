@@ -31,6 +31,20 @@ final class NumberNormalizerTest extends TestCase
             'trailing zeros trimmed' => ['10.50', '10.5'],
             'zero' => ['0,00', '0'],
             'leading zero fraction' => ['0.05', '0.05'],
+            'accounting parentheses' => ['(1 234)', '-1234'],
+            'accounting with decimals' => ['(1.234,50)', '-1234.5'],
+            'unicode minus' => ["\u{2212}5", '-5'],
+            'en dash minus' => ["\u{2013}5", '-5'],
+            'figure dash minus' => ["\u{2012}5", '-5'],
+            'fullwidth minus' => ["\u{FF0D}5", '-5'],
+            'small hyphen minus' => ["\u{FE63}5", '-5'],
+            'trailing minus' => ['5-', '-5'],
+            'euro prefix' => ['€ 12,50', '12.5'],
+            'euro suffix' => ['12,50 €', '12.5'],
+            'iso code suffix' => ['1 500 HUF', '1500'],
+            'iso code prefix' => ['EUR 1 500', '1500'],
+            'short token' => ['1 500 kr', '1500'],
+            'minus before symbol' => ['-€5', '-5'],
             'native int' => [42, '42'],
             'native float' => [0.1, '0.1'],
             'native float shortest' => [1234.56, '1234.56'],
@@ -66,6 +80,11 @@ final class NumberNormalizerTest extends TestCase
             'embedded letters' => ['12abc34'],
             'two decimal points' => ['1.2,3.4'],
             'lone sign' => ['-'],
+            'trailing word' => ['12 apples'],
+            'leading word' => ['abc12'],
+            'double sign' => ['-5-'],
+            'sign and parentheses' => ['(-5)'],
+            'unbalanced parenthesis' => ['(5'],
         ];
     }
 
@@ -86,6 +105,12 @@ final class NumberNormalizerTest extends TestCase
         $this->assertSame(7, $this->integer(7)->value);
         $this->assertSame(7, $this->integer(7.0)->value);
         $this->assertSame(-3, $this->integer('-3')->value);
+    }
+
+    public function test_integer_affix_rules(): void
+    {
+        $this->assertSame(-1234, $this->integer('(1 234)')->value);
+        $this->assertSame('spreadsheet::messages.invalid_integer', $this->integer('12 apples')->error);
     }
 
     public function test_integer_rejects_fractions_and_overflow(): void

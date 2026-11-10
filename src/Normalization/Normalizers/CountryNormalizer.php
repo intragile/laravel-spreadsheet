@@ -104,7 +104,9 @@ final class CountryNormalizer implements Normalizer
 
         if ($locale === 'en') {
             foreach (self::countries() as $alpha2 => [, $name]) {
-                $names[Cell::fold($name)] = $alpha2;
+                foreach (self::variants($name) as $variant) {
+                    $names[Cell::fold($variant)] ??= $alpha2;
+                }
             }
         } elseif (class_exists(Locale::class)) {
             foreach (array_keys(self::countries()) as $alpha2) {
@@ -117,5 +119,23 @@ final class CountryNormalizer implements Normalizer
         }
 
         return self::$names[$locale] = $names;
+    }
+
+    /**
+     * A name, the name without a parenthesised qualifier, and the qualifier itself:
+     * "Myanmar (Burma)" yields "Myanmar (Burma)", "Myanmar" and "Burma".
+     *
+     * @return list<string>
+     */
+    private static function variants(string $name): array
+    {
+        $variants = [$name];
+
+        if (preg_match('/^(.*?)\s*\((.+)\)\s*(.*)$/u', $name, $m) === 1) {
+            $variants[] = trim($m[1].' '.$m[3]);
+            $variants[] = $m[2];
+        }
+
+        return $variants;
     }
 }
