@@ -36,24 +36,25 @@ column, width, frozen header), `export-hu.csv` (`;` delimiter, UTF-8 BOM), `fail
 | Formula-like text `=1+1` stays text | yes (`=1+1` shown, no formula) | not inspected | yes |
 | Frozen header, xlsx | yes (split row 1) | yes (split row 1) | no header row reported (`headerRows=0`) |
 | Frozen header, ods | **no** (`freeze=false`) | yes (split row 1) | not applicable |
-| Autofilter | none, in all files | none reported | not applicable |
+| Autofilter on the header row (after the writers enabled it) | yes in xlsx and ods (`autofilter=true`) | yes in xlsx and ods (enabled, rows 1-5 or 1-4, columns 1-6) | not inspected |
 | Failed-rows status and message columns | yes (`Import status`, `Import message`, values `Error`/`Skipped`/`Needs review` and the Hungarian messages) | yes (first row) | yes (xlsx) |
-| `export-hu.csv` splits into 6 columns with correct accents | **no** (see below) | **hung** (see below) | yes (6 columns, header row, accents intact) |
+| `export-hu.csv` splits into 6 columns with correct accents | **no**, also not when opened with `open -a "Microsoft Excel"` (see below) | **hung** (see below) | yes (6 columns, header row, accents intact) |
 
 Column widths were written in all spreadsheet files and read back by Excel and LibreOffice.
 
 ## Findings
 
-- **CSV in Excel:** opened through the inspector's AppleScript `open` command, `export-hu.csv` landed in a
-  single column (`A1:A6`) with the semicolons unsplit. Accents were correct (the BOM works). The inspector
-  does not use a double-click open, so whether a double-click splits the file under a given regional list
-  separator is **unverified**.
+- **CSV in Excel:** `export-hu.csv` (`;` delimiter, BOM) landed in a single column (`A1:A6`, A1 =
+  `ID;Név;Összeg;...`) both through the inspector's AppleScript `open` and when opened like a double-click
+  with `open -a "Microsoft Excel"` (machine locale hu_ES). Accents were correct, so the BOM works. Whether
+  the file splits depends on Excel's list separator for the regional settings, so this is a locale-dependent
+  limitation, not a defect: users can import it with Data > From Text/CSV. No `sep=` line is written because
+  it disables Excel's BOM detection. Numbers split it into 6 columns correctly.
 - **CSV in LibreOffice:** the first LibreOffice run included `export-hu.csv` and produced no report within the
   inspector's 120 s limit (most likely a text-import dialog). It was killed. The CSV was left out of the
   re-run; its LibreOffice behavior is **unverified**.
-- **No autofilter:** the export writer does not enable the autofilter (`SheetOptions::$autoFilter` stays
-  `false`), so none of the files has one. Nothing was expected to show in the office applications.
-- **ODS freeze in Excel:** Excel did not show the frozen header of the `.ods` files; LibreOffice did.
+- **ODS in Excel and Numbers (application limitations):** Excel does not show the frozen header of `.ods`
+  files (LibreOffice does), and Numbers cannot open ODS at all. Neither is a defect of the files.
 - The Hungarian `status`/`message` header texts depend on the app locale; this run used the English
   translations (`Import status`, `Import message`).
 - Cells with a missing value in Excel/Numbers output (`missing value`) are empty cells (nulls), as intended.

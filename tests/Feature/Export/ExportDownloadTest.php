@@ -58,6 +58,17 @@ final class ExportDownloadTest extends ExportTestCase
         $this->assertStringContainsString('FFEE00', $this->zipEntry($other, 'xl/styles.xml'));
     }
 
+    public function test_header_row_has_an_autofilter_in_xlsx_and_ods(): void
+    {
+        $xlsx = $this->tempFile('xlsx');
+        Export::fromRows([['a' => 1, 'b' => 2]])->withColumns([Column::make('A'), Column::make('B')])->writeTo($xlsx);
+        $this->assertMatchesRegularExpression('/<autoFilter ref="A1:B\d+"/', $this->zipEntry($xlsx, 'xl/worksheets/sheet1.xml'));
+
+        $ods = $this->tempFile('ods');
+        Export::fromRows([['a' => 1, 'b' => 2]])->withColumns([Column::make('A'), Column::make('B')])->writeTo($ods);
+        $this->assertStringContainsString('table:display-filter-buttons="true"', $this->zipEntry($ods, 'content.xml'));
+    }
+
     public function test_query_source_uses_keyset_cursor(): void
     {
         $this->seedPartners(2500, withNulls: true);

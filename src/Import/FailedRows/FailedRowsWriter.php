@@ -121,7 +121,7 @@ final class FailedRowsWriter
 
         try {
             $writer = Spreadsheet::write($this->path, $this->format);
-            $writer->sheet('Failed rows', new SheetOptions(freezeRows: 1));
+            $writer->sheet('Failed rows', new SheetOptions(freezeRows: 1, autoFilter: true));
             $writer->addRow([
                 ...array_map(static fn (string $header): Cell => Cell::text($header), $this->headers),
                 Cell::text((string) __('spreadsheet::messages.failed_rows.status_header')),

@@ -45,7 +45,7 @@ final class ExportWriter
                 }
             }
 
-            $writer->sheet($this->sheetName, new SheetOptions(columnWidths: $widths, freezeRows: 1));
+            $writer->sheet($this->sheetName, new SheetOptions(columnWidths: $widths, freezeRows: 1, autoFilter: true));
             $writer->addRow(array_map(static fn (Column $column): string => $column->header(), $this->columns), $this->headerStyle);
 
             foreach ($rows as $row) {

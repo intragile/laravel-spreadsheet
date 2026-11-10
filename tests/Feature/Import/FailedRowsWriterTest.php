@@ -33,6 +33,23 @@ final class FailedRowsWriterTest extends TestCase
         }
     }
 
+    public function test_header_row_has_an_autofilter(): void
+    {
+        Storage::fake('local');
+
+        foreach ([[Format::Xlsx, 'xl/worksheets/sheet1.xml', '/<autoFilter ref="A1:C\d+"/'], [Format::Ods, 'content.xml', '/display-filter-buttons="true"/']] as [$format, $entry, $pattern]) {
+            $writer = new FailedRowsWriter(['Code'], $format, []);
+            $writer->write(['x'], RowStatus::Error, 'Bad');
+            $path = $writer->finish('local', 'spreadsheet/failed-rows');
+            $this->assertNotNull($path);
+
+            $zip = new \ZipArchive;
+            $this->assertTrue($zip->open(Storage::disk('local')->path($path)) === true);
+            $this->assertMatchesRegularExpression($pattern, (string) $zip->getFromName($entry));
+            $zip->close();
+        }
+    }
+
     public function test_writes_headers_status_and_message_and_preserves_types(): void
     {
         Storage::fake('local');
