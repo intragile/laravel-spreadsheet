@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace IntrAgile\LaravelSpreadsheet\Tests\Feature\Import;
 
 use DateTimeImmutable;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Storage;
+use IntrAgile\LaravelSpreadsheet\Exceptions\ImportLimitExceeded;
 use IntrAgile\LaravelSpreadsheet\Import\ImportStatus;
 use IntrAgile\LaravelSpreadsheet\Import\PendingImport;
 use IntrAgile\LaravelSpreadsheet\Matching\MatchPolicy;
@@ -55,7 +57,7 @@ final class ImportHardeningTest extends ImportTestCase
 
     public function test_a_row_error_that_rolled_back_the_chunk_transaction_aborts_the_import(): void
     {
-        ConnectionBreakingImport::$lostConnection = false;
+        ConnectionBreakingImport::$mode = 'rollback';
         $path = $this->file([['Name', 'Email'], ['Good', 'g@x.hu'], ['Bad', 'b@x.hu'], ['Fine', 'f@x.hu']]);
 
         $error = null;
@@ -73,22 +75,39 @@ final class ImportHardeningTest extends ImportTestCase
 
     public function test_a_lost_connection_in_a_row_aborts_the_import(): void
     {
-        ConnectionBreakingImport::$lostConnection = true;
+        ConnectionBreakingImport::$mode = 'lost';
         $path = $this->file([['Name', 'Email'], ['Good', 'g@x.hu'], ['Bad', 'b@x.hu'], ['Fine', 'f@x.hu']]);
 
         $error = null;
 
         try {
             $result = (new PendingImport(new ConnectionBreakingImport, $path))->run();
-        } catch (\RuntimeException $e) {
+        } catch (QueryException $e) {
             $error = $e;
         } finally {
-            ConnectionBreakingImport::$lostConnection = false;
+            ConnectionBreakingImport::$mode = 'rollback';
         }
 
         $this->assertNotNull($error, isset($result) ? "The import completed with {$result->created} created rows and {$result->failed} failed." : '');
         $this->assertStringContainsString('server has gone away', $error->getMessage());
         $this->assertSame(0, Partner::query()->count());
+    }
+
+    public function test_a_non_database_error_mentioning_a_connection_fails_only_its_row(): void
+    {
+        ConnectionBreakingImport::$mode = 'reset';
+        $path = $this->file([['Name', 'Email'], ['Good', 'g@x.hu'], ['Bad', 'b@x.hu'], ['Fine', 'f@x.hu']]);
+
+        try {
+            $result = (new PendingImport(new ConnectionBreakingImport, $path))->run();
+        } finally {
+            ConnectionBreakingImport::$mode = 'rollback';
+        }
+
+        $this->assertSame(ImportStatus::Completed, $result->status);
+        $this->assertSame(2, $result->created);
+        $this->assertSame(1, $result->failed);
+        $this->assertSame(['Good', 'Fine'], Partner::query()->orderBy('id')->pluck('name')->all());
     }
 
     public function test_overwrite_keeps_attributes_whose_cell_is_blank(): void
@@ -163,6 +182,25 @@ final class ImportHardeningTest extends ImportTestCase
         }
 
         $this->assertSame($before, $this->tempLeftovers());
+        $this->assertSame(0, Partner::query()->count());
+    }
+
+    public function test_xls_cell_limit_names_the_setting(): void
+    {
+        config(['spreadsheet.import.max_cells' => 10]);
+
+        try {
+            (new PendingImport(new PartnerImport, $this->fixture('grid-5x5.xls')))->acceptSuggestedMapping()->run();
+            $this->fail('The XLS cell limit was not applied.');
+        } catch (ImportLimitExceeded $e) {
+            $this->assertFalse($e->partial);
+            $this->assertSame(
+                'The file exceeds a safety limit and was not imported: The workbook holds more than 10 cells, which exceeds maxCells.'
+                .' The cell limit is set by spreadsheet.import.max_cells (now 10).',
+                $e->getMessage(),
+            );
+        }
+
         $this->assertSame(0, Partner::query()->count());
     }
 

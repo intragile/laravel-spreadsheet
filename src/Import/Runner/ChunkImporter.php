@@ -10,6 +10,7 @@ use Illuminate\Database\DeadlockException;
 use Illuminate\Database\DetectsConcurrencyErrors;
 use Illuminate\Database\DetectsLostConnections;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\QueryException;
 use IntrAgile\LaravelSpreadsheet\Import\FailedRows\FailedRowsWriter;
 use IntrAgile\LaravelSpreadsheet\Import\Import;
 use IntrAgile\LaravelSpreadsheet\Import\Pipeline\ProcessedRow;
@@ -22,6 +23,7 @@ use IntrAgile\LaravelSpreadsheet\Matching\MatchPolicy;
 use IntrAgile\LaravelSpreadsheet\Matching\MatchRule;
 use IntrAgile\LaravelSpreadsheet\Matching\MatchStrength;
 use IntrAgile\LaravelSpreadsheet\Matching\RecordMatcher;
+use PDOException;
 use Throwable;
 
 /**
@@ -228,10 +230,12 @@ final class ChunkImporter
                     throw $e;
                 }
 
-                // A lost connection, or a chunk transaction that is no longer open, means the rows
-                // written so far were rolled back: counting them would report records that do not
-                // exist, so the import stops.
-                if ($this->causedByLostConnection($e) || $this->connection->transactionLevel() < $level) {
+                // A lost database connection, or a chunk transaction that is no longer open, means
+                // the rows written so far were rolled back: counting them would report records that
+                // do not exist, so the import stops. Only database errors are checked for a lost
+                // connection; a hook's own error mentioning a connection fails just its row.
+                if ((($e instanceof QueryException || $e instanceof PDOException) && $this->causedByLostConnection($e))
+                    || $this->connection->transactionLevel() < $level) {
                     throw $e;
                 }
 
