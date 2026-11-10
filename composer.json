@@ -5,11 +5,15 @@
         "laravel",
         "spreadsheet",
         "xlsx",
+        "ods",
         "csv",
+        "excel",
         "export",
         "import",
         "streaming",
-        "eloquent"
+        "column-mapping",
+        "deduplication",
+        "validation"
     ],
     "type": "library",
     "license": "MIT",

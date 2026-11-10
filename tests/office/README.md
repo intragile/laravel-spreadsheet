@@ -1,6 +1,6 @@
-Developed and maintained by [IntrAgile Kft.](https://intragile.eu)
-
 # Office application check
+
+Developed and maintained by [IntrAgile Kft.](https://intragile.eu)
 
 Opens the package's exports and failed-rows files in real office applications. Run it before a release.
 
@@ -62,5 +62,7 @@ Column widths: `export-styled.*` sets explicit widths, which Excel and LibreOffi
 - Cells with a missing value in Excel/Numbers output (`missing value`) are empty cells (nulls), as intended.
 - Not inspected: LibreOffice header bold/fill and formula-text cells, Numbers header styling. Those are
   **unverified**.
+
+---
 
 Developed and maintained by [IntrAgile Kft.](https://intragile.eu)

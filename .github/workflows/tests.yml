@@ -5,19 +5,16 @@ on:
   schedule:
     - cron: "0 6 * * 1"
   workflow_dispatch:
+permissions:
+  contents: read
 jobs:
   tests:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - { php: '8.3', laravel: '12.*' }
-          - { php: '8.4', laravel: '12.*' }
-          - { php: '8.5', laravel: '12.*' }
-          - { php: '8.3', laravel: '13.*' }
-          - { php: '8.4', laravel: '13.*' }
-          - { php: '8.5', laravel: '13.*' }
+        php: ['8.3', '8.4', '8.5']
+        laravel: ['12.*', '13.*']
     name: PHP ${{ matrix.php }} / Laravel ${{ matrix.laravel }}
     steps:
       - uses: actions/checkout@v7
@@ -26,7 +23,18 @@ jobs:
           php-version: ${{ matrix.php }}
           extensions: mbstring, zip, xmlreader, dom, iconv, pdo_sqlite, intl
           coverage: none
-      - run: composer require --dev "illuminate/support:${{ matrix.laravel }}" --no-update --no-interaction
+      # A path repository only resolves next to a local checkout of the core; CI installs the
+      # core from Packagist instead. This is a no-op once composer.json has no path repository.
+      - name: Drop local path repositories
+        run: |
+          php -r '
+            $file = "composer.json";
+            $json = json_decode(file_get_contents($file), true, 512, JSON_THROW_ON_ERROR);
+            $repositories = array_values(array_filter($json["repositories"] ?? [], fn (array $r): bool => ($r["type"] ?? "") !== "path"));
+            if ($repositories === []) { unset($json["repositories"]); } else { $json["repositories"] = $repositories; }
+            file_put_contents($file, json_encode($json, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)."\n");
+          '
+      - run: composer require "illuminate/support:${{ matrix.laravel }}" --no-update --no-interaction
       - run: composer update --prefer-dist --no-interaction --no-progress
       - run: vendor/bin/phpunit
       - run: vendor/bin/phpstan analyse --memory-limit=1G
