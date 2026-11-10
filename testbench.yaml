@@ -1,0 +1,2 @@
+providers:
+  - IntrAgile\LaravelSpreadsheet\SpreadsheetServiceProvider
