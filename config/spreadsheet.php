@@ -18,6 +18,9 @@ return [
     ],
 
     'import' => [
+        // Rows read, matched and written per database transaction.
+        'chunk_size' => 500,
+
         // Rows per existing-record lookup query; keeps bindings under driver limits.
         'lookup_batch' => 500,
 

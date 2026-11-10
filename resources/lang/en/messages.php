@@ -12,6 +12,11 @@ return [
     'unknown_option' => '":value" is not one of the allowed options: :options.',
     'invalid_domain' => '":value" is not a valid domain name.',
     'currency_from_symbol' => 'Currency ":value" was read as :code.',
+    'duplicate_in_file' => 'Duplicate of row :row.',
+    'possible_duplicate_in_file' => 'Possibly the same as row :row; check it before importing.',
+    'possible_duplicate' => 'Possibly the same as an existing record (#:id); check it before importing.',
+    'matches_trashed' => 'Matches a deleted record.',
+    'database_error' => 'The row could not be saved.',
     'status' => [
         'error' => 'Error',
         'skipped' => 'Skipped',

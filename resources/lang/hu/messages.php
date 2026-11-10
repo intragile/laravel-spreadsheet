@@ -12,6 +12,11 @@ return [
     'unknown_option' => '„:value” nem megengedett érték, a lehetőségek: :options.',
     'invalid_domain' => '„:value” nem érvényes domainnév.',
     'currency_from_symbol' => 'A(z) „:value” pénznem értéke :code lett.',
+    'duplicate_in_file' => 'A(z) :row. sor ismétlése.',
+    'possible_duplicate_in_file' => 'Valószínűleg azonos a(z) :row. sorral; importálás előtt ellenőrizze.',
+    'possible_duplicate' => 'Valószínűleg azonos egy meglévő rekorddal (#:id); importálás előtt ellenőrizze.',
+    'matches_trashed' => 'Egy törölt rekorddal egyezik.',
+    'database_error' => 'A sort nem sikerült menteni.',
     'status' => [
         'error' => 'Hiba',
         'skipped' => 'Kihagyva',

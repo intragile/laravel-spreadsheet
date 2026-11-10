@@ -70,6 +70,20 @@ final class SqliteKeyStore implements KeyStore
             return null;
         }
 
+        return $this->lookup($ruleId, $key);
+    }
+
+    public function seen(string $ruleId, string $key): ?int
+    {
+        if ($this->pdo === null) {
+            throw new RuntimeException('The key store is closed.');
+        }
+
+        return $this->lookup($ruleId, $key);
+    }
+
+    private function lookup(string $ruleId, string $key): ?int
+    {
         $this->select->execute([$ruleId, $key]);
         $row = $this->select->fetchColumn();
         $this->select->closeCursor();

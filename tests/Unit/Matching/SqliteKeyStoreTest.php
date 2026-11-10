@@ -20,6 +20,18 @@ final class SqliteKeyStoreTest extends TestCase
         $store->close();
     }
 
+    public function test_seen_looks_up_without_recording(): void
+    {
+        $store = new SqliteKeyStore;
+
+        $this->assertNull($store->seen('r', 'k'));
+        $this->assertNull($store->firstSeen('r', 'k', 4), 'A lookup does not record the key.');
+        $this->assertSame(4, $store->seen('r', 'k'));
+        $this->assertNull($store->seen('other', 'k'));
+
+        $store->close();
+    }
+
     public function test_rules_do_not_collide(): void
     {
         $store = new SqliteKeyStore;

@@ -11,6 +11,7 @@ use IntrAgile\LaravelSpreadsheet\Matching\DatabaseRecordMatcher;
 use IntrAgile\LaravelSpreadsheet\Matching\MatchPolicy;
 use IntrAgile\LaravelSpreadsheet\Matching\MatchRule;
 use IntrAgile\LaravelSpreadsheet\Matching\RecordMatcher;
+use LogicException;
 
 /**
  * Declarative description of an import: target model, fields, duplicate rules and
@@ -18,6 +19,22 @@ use IntrAgile\LaravelSpreadsheet\Matching\RecordMatcher;
  */
 abstract class Import
 {
+    /**
+     * Starts an import of a file with an instance resolved from the container.
+     *
+     * @param  string|null  $disk  Filesystem disk holding the file; null reads a local path.
+     */
+    public static function from(string $path, ?string $disk = null): PendingImport
+    {
+        $import = app(static::class);
+
+        if (! $import instanceof static) {
+            throw new LogicException('The container did not resolve '.static::class.'.');
+        }
+
+        return new PendingImport($import, $path, $disk);
+    }
+
     /** @return class-string<Model> */
     abstract public function model(): string;
 

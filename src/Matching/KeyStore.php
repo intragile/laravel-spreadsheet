@@ -12,5 +12,8 @@ interface KeyStore
     /** Returns the row number that first produced the key, or null when this is the first sight (and records it). */
     public function firstSeen(string $ruleId, string $key, int $rowNumber): ?int;
 
+    /** Returns the row number that recorded the key, or null when it was never recorded; records nothing. */
+    public function seen(string $ruleId, string $key): ?int;
+
     public function close(): void;
 }
