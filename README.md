@@ -63,7 +63,8 @@ Requirements:
   language names in locales other than English. Without it, accent folding falls back to a built-in
   table that covers the Latin letters of the European languages.
 - The core's own requirements: `ext-zip`, `ext-xmlreader`, `ext-mbstring`, `ext-iconv`. Reading legacy
-  `.xls` uploads additionally needs `phpoffice/phpspreadsheet` (see the core README).
+  `.xls` uploads additionally needs `phpoffice/phpspreadsheet` 5.10 or later (see the core
+  README).
 
 The service provider is discovered automatically. Publish the configuration if you want to change it:
 
@@ -492,7 +493,8 @@ PartnerImport::from('uploads/partners.xlsx', 's3')
 ```
 
 The job fires `IntrAgile\LaravelSpreadsheet\Events\ImportCompleted` (`result`, `importClass`) or
-`ImportFailed` (`importClass`, `message`). The worker must be able to read the file, so queued imports
+`ImportFailed` (`importClass`, `message`). The import object is serialized with the job, so keep
+closures out of its properties (build them inside `onMatch()` instead). The worker must be able to read the file, so queued imports
 normally read from a shared disk. A mapping that needs confirmation completes with
 `ImportStatus::NeedsConfirmation`; with `->strict()` it fails instead. Database error messages are
 replaced by a generic translated text unless `app.debug` is on.
@@ -539,8 +541,9 @@ release (full results in [tests/office/README.md](tests/office/README.md)):
   (Numbers did); use XLSX when codes must stay text.
 - **ODS:** Excel ignores the frozen header of ODS files and Numbers cannot open ODS at all. Both are
   application limits; LibreOffice shows both correctly.
-- **Closure policies are not queueable:** queue only imports whose `onMatch()` returns a `MatchPolicy`
-  case. Run imports with a closure policy synchronously.
+- **Queued imports are serialized:** the job serializes the import object, so an import class that holds
+  a closure (or any other unserializable value) in a property cannot be queued. A closure policy built
+  inside `onMatch()` is fine, because it is created on the worker.
 - **Deadlock retry:** the chunk is retried once, and only usefully when the importer owns the outermost
   transaction. Inside a transaction your code opened, the retry would run in a transaction the database
   has already aborted.

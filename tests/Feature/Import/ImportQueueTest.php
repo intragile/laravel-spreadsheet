@@ -4,7 +4,10 @@ declare(strict_types=1);
 
 namespace IntrAgile\LaravelSpreadsheet\Tests\Feature\Import;
 
+use Closure;
+use Exception;
 use Illuminate\Database\DeadlockException;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
@@ -13,6 +16,7 @@ use IntrAgile\LaravelSpreadsheet\Events\ImportFailed;
 use IntrAgile\LaravelSpreadsheet\Import\Import;
 use IntrAgile\LaravelSpreadsheet\Import\ImportJob;
 use IntrAgile\LaravelSpreadsheet\Import\ImportStatus;
+use IntrAgile\LaravelSpreadsheet\Import\PendingImport;
 use IntrAgile\LaravelSpreadsheet\Matching\MatchRule;
 use IntrAgile\LaravelSpreadsheet\Matching\RecordMatcher;
 use IntrAgile\LaravelSpreadsheet\Tests\Support\Imports\FlakyPartnerImport;
@@ -136,6 +140,41 @@ final class ImportQueueTest extends ImportTestCase
         $this->assertSame([], Storage::disk('local')->allFiles());
     }
 
+    public function test_closure_policy_built_in_on_match_runs_on_the_queue(): void
+    {
+        Event::fake([ImportCompleted::class, ImportFailed::class]);
+        $partner = Partner::query()->create(['name' => 'Old', 'email' => 'old@example.com', 'tax_number' => 'T-1']);
+        $file = $this->file([['Name', 'Email', 'City', 'Tax number'], ['New', 'new@example.com', 'Pécs', 'T-1']]);
+        $path = $this->upload((string) file_get_contents($file), 'in/closure.csv');
+
+        // The sync queue serializes the job payload and runs the unserialized copy.
+        ClosurePolicyImport::from($path, 'uploads')->queue();
+
+        Event::assertDispatched(ImportCompleted::class, static fn (ImportCompleted $e): bool => $e->result->status === ImportStatus::Completed
+            && $e->result->updated === 1
+            && $e->result->created === 0);
+        Event::assertNotDispatched(ImportFailed::class);
+        $fresh = $partner->fresh();
+        $this->assertNotNull($fresh);
+        $this->assertSame(['name' => 'Old', 'city' => 'PÉCS'], ['name' => $fresh->getAttribute('name'), 'city' => $fresh->getAttribute('city')]);
+    }
+
+    public function test_import_holding_a_closure_in_a_property_cannot_be_queued(): void
+    {
+        $file = $this->file([['Name', 'Email', 'City', 'Tax number'], ['New', 'new@example.com', 'Pécs', 'T-1']]);
+        $path = $this->upload((string) file_get_contents($file), 'in/closure.csv');
+        $import = new PartnerImport(static fn (Model $existing, array $values): ?array => null, [MatchRule::sure('tax_number')]);
+
+        try {
+            (new PendingImport($import, $path, 'uploads'))->queue();
+            $this->fail('Serializing a closure held by the import must fail.');
+        } catch (Exception $e) {
+            $this->assertStringContainsString('Closure', $e->getMessage());
+        }
+
+        $this->assertSame(0, Partner::query()->count());
+    }
+
     /** @return list<string> */
     private function tempFiles(): array
     {
@@ -174,5 +213,19 @@ final class FailingMatcherImport extends PartnerImport
                 return [];
             }
         };
+    }
+}
+
+final class ClosurePolicyImport extends PartnerImport
+{
+    public function matchRules(): array
+    {
+        return [MatchRule::sure('tax_number')];
+    }
+
+    /** @return Closure(Model, array<string, mixed>): array<string, mixed> */
+    public function onMatch(): Closure
+    {
+        return static fn (Model $existing, array $values): array => ['city' => mb_strtoupper(is_string($values['city'] ?? null) ? $values['city'] : '')];
     }
 }

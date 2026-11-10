@@ -63,7 +63,8 @@ Követelmények:
   ország- és nyelvnevekhez kell. Nélküle az ékezetek elhagyása egy beépített táblázatra támaszkodik, amely
   az európai nyelvek latin betűit lefedi.
 - A core saját követelményei: `ext-zip`, `ext-xmlreader`, `ext-mbstring`, `ext-iconv`. A régi `.xls`
-  feltöltések olvasásához ezen felül `phpoffice/phpspreadsheet` kell (lásd a core README-jét).
+  feltöltések olvasásához ezen felül a `phpoffice/phpspreadsheet` 5.10-es vagy újabb változata kell (lásd a
+  core README-jét).
 
 A service provider automatikusan betöltődik. Ha a beállításokon változtatnál, publikáld a konfigurációt:
 
@@ -509,7 +510,8 @@ PartnerImport::from('uploads/partners.xlsx', 's3')
 ```
 
 A job `IntrAgile\LaravelSpreadsheet\Events\ImportCompleted` (`result`, `importClass`) vagy `ImportFailed`
-(`importClass`, `message`) eseményt küld. A workernek el kell érnie a fájlt, ezért a sorba állított
+(`importClass`, `message`) eseményt küld. Az import objektum a jobbal együtt szerializálódik, ezért a
+tulajdonságaiban ne tárolj closure-t (az `onMatch()` metóduson belül hozd létre). A workernek el kell érnie a fájlt, ezért a sorba állított
 import általában közös diskről olvas. A jóváhagyásra váró megfeleltetés `ImportStatus::NeedsConfirmation`
 eredménnyel zárul; `->strict()` mellett hibával. Az adatbázis hibaüzeneteit egy általános, lefordított
 szöveg váltja fel, hacsak az `app.debug` nincs bekapcsolva.
@@ -559,8 +561,10 @@ LibreOffice és a Numbers alkalmazásban (a teljes eredmény a
   alakíthatja (a Numbers ezt tette); ha a kódoknak szövegnek kell maradniuk, használj XLSX-et.
 - **ODS:** az Excel nem veszi figyelembe az ODS-fájlok rögzített fejlécét, a Numbers pedig egyáltalán nem
   nyit meg ODS-t. Mindkettő az alkalmazások korlátja; a LibreOffice mindkettőt helyesen mutatja.
-- **A closure-szabályú import nem állítható sorba:** csak olyan importot állíts sorba, amelynek
-  `onMatch()` metódusa `MatchPolicy` esetet ad vissza. A closure-szabályú importot szinkron futtasd.
+- **A sorba állított import szerializálódik:** a job az import objektumot szerializálja, ezért nem
+  állítható sorba olyan import osztály, amely egy tulajdonságában closure-t (vagy más nem szerializálható
+  értéket) tárol. Az `onMatch()` metóduson belül létrehozott closure-szabály rendben van, mert az a
+  workeren jön létre.
 - **Deadlock utáni újrapróbálás:** a darab egyszer fut újra, és csak akkor van értelme, ha a legkülső
   tranzakció az importé. Egy a saját kódod által nyitott tranzakción belül az újrapróbálás egy olyan
   tranzakcióban futna, amelyet az adatbázis már megszakított.
