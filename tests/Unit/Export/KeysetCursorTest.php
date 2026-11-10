@@ -165,14 +165,22 @@ final class KeysetCursorTest extends TestCase
         iterator_to_array(KeysetCursor::each(fn () => Partner::query()->select('id', 'name'), 'city', 'asc', 2));
     }
 
-    public function test_table_qualified_sort_column_throws(): void
+    public function test_table_qualified_sort_column_is_accepted(): void
     {
         $this->seedTiesAndNulls();
 
-        $this->expectException(LogicException::class);
-        $this->expectExceptionMessage('unqualified');
+        $plain = $this->ids(KeysetCursor::each(fn () => Partner::query(), 'city', 'asc', 2));
+        $qualified = $this->ids(KeysetCursor::each(fn () => Partner::query(), 'partners.city', 'asc', 2));
 
-        iterator_to_array(KeysetCursor::each(fn () => Partner::query(), 'partners.city', 'asc', 2));
+        $this->assertCount(23, $qualified);
+        $this->assertSame($plain, $qualified);
+    }
+
+    public function test_table_qualified_key_is_treated_as_key(): void
+    {
+        $ids = $this->seedPartners(12);
+
+        $this->assertSame($ids, $this->ids(KeysetCursor::each(fn () => Partner::query(), 'partners.id', 'asc', 5)));
     }
 
     /** @return list<int> */

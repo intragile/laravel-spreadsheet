@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace IntrAgile\LaravelSpreadsheet\Tests\Support\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasManyThrough;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Carbon;
 
@@ -36,5 +38,17 @@ final class Partner extends Model
     public function contacts(): HasMany
     {
         return $this->hasMany(Contact::class);
+    }
+
+    /** @return BelongsToMany<Tag, $this> */
+    public function tags(): BelongsToMany
+    {
+        return $this->belongsToMany(Tag::class, 'partner_tag');
+    }
+
+    /** @return HasManyThrough<DomainContact, Domain, $this> */
+    public function domainContacts(): HasManyThrough
+    {
+        return $this->hasManyThrough(DomainContact::class, Domain::class);
     }
 }
