@@ -8,6 +8,7 @@ use Closure;
 use Generator;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use LogicException;
 
 /**
  * Walks an Eloquent result set with keyset pagination.
@@ -81,6 +82,12 @@ final class KeysetCursor
                 $chunk = $query->limit($chunkSize)->get();
 
                 foreach ($chunk as $model) {
+                    if ($sorted && $sortColumn !== null && $model->getRawOriginal($sortColumn) === null) {
+                        throw new LogicException(
+                            "The sort column \"{$sortColumn}\" is missing from the fetched rows; it must be selected and unqualified (no table prefix).",
+                        );
+                    }
+
                     yield $index++ => $model;
 
                     // Raw value: a cast (e.g. datetime to Carbon) would change the format used

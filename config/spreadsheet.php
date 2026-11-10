@@ -7,6 +7,9 @@ return [
         // Rows fetched per keyset page.
         'chunk_size' => 1000,
 
+        // Header row style: bold, italic, wrap, fill (hex), font_color (hex), align, border (bool|hex).
+        'header_style' => ['bold' => true, 'fill' => 'DDDDDD'],
+
         'csv' => [
             'delimiter' => ',',
             'bom' => false,

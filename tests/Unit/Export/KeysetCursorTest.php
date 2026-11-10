@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\DB;
 use IntrAgile\LaravelSpreadsheet\Export\KeysetCursor;
 use IntrAgile\LaravelSpreadsheet\Tests\Support\Models\Partner;
 use IntrAgile\LaravelSpreadsheet\Tests\TestCase;
+use LogicException;
 
 final class KeysetCursorTest extends TestCase
 {
@@ -152,6 +153,27 @@ final class KeysetCursorTest extends TestCase
         }
 
         return $ids;
+    }
+
+    public function test_unselected_sort_column_throws_instead_of_dropping_rows(): void
+    {
+        $this->seedTiesAndNulls();
+
+        $this->expectException(LogicException::class);
+        $this->expectExceptionMessage('"city"');
+        $this->expectExceptionMessage('selected');
+
+        iterator_to_array(KeysetCursor::each(fn () => Partner::query()->select('id', 'name'), 'city', 'asc', 2));
+    }
+
+    public function test_table_qualified_sort_column_throws(): void
+    {
+        $this->seedTiesAndNulls();
+
+        $this->expectException(LogicException::class);
+        $this->expectExceptionMessage('unqualified');
+
+        iterator_to_array(KeysetCursor::each(fn () => Partner::query(), 'partners.city', 'asc', 2));
     }
 
     /** @return list<int> */
