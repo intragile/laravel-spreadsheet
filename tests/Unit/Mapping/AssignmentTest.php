@@ -62,7 +62,10 @@ final class AssignmentTest extends TestCase
         }
     }
 
-    /** @param  array<int, array<int, float>>  $scores @param  list<int|string>  $used */
+    /**
+     * @param  array<int, array<int, float>>  $scores
+     * @param  list<int|string>  $used
+     */
     private function bruteForce(array $scores, int $row, array $used): float
     {
         if ($row >= count($scores)) {

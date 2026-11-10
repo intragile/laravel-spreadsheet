@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace IntrAgile\LaravelSpreadsheet\Tests\Feature\Mapping;
 
 use DateTimeImmutable;
-use Illuminate\Database\Migrations\Migration;
 use Illuminate\Support\Facades\DB;
 use IntrAgile\LaravelSpreadsheet\Mapping\Templates\DatabaseMappingTemplateStore;
 use IntrAgile\LaravelSpreadsheet\Mapping\Templates\MappingTemplate;
@@ -24,8 +23,8 @@ final class DatabaseTemplateStoreTest extends TestCase
     {
         parent::defineDatabaseMigrations();
 
-        /** @var Migration $migration */
         $migration = require __DIR__.'/../../../database/migrations/create_spreadsheet_mapping_templates_table.php.stub';
+        $this->assertTrue(is_object($migration) && method_exists($migration, 'up'));
         $migration->up();
     }
 
