@@ -64,7 +64,7 @@ final class MappingSuggester
         $matches = [];
 
         foreach ($headers as $column => $header) {
-            $index = $assignment[$column] ?? null;
+            $index = isset($assignable[$column][$assignment[$column] ?? -1]) ? $assignment[$column] : null;
             $score = $index === null ? 0.0 : ($scores[$column][$index] ?? 0.0);
 
             $matches[] = new ColumnMatch(
@@ -128,16 +128,17 @@ final class MappingSuggester
 
         [$short, $long] = strlen($header) <= strlen($candidate) ? [$header, $candidate] : [$candidate, $header];
 
-        if (str_contains(' '.$long.' ', ' '.$short.' ')) {
+        if (mb_strlen($short) >= 3 && str_contains(' '.$long.' ', ' '.$short.' ')) {
             return 80.0;
         }
 
         $headerWords = explode(' ', $header);
         $candidateWords = explode(' ', $candidate);
         $union = count(array_unique([...$headerWords, ...$candidateWords]));
-        $jaccard = count(array_intersect(array_unique($headerWords), array_unique($candidateWords))) / $union;
+        $shared = array_intersect(array_unique($headerWords), array_unique($candidateWords));
+        $jaccard = count($shared) / $union;
 
-        if ($jaccard >= 0.5) {
+        if ($jaccard >= 0.5 && max(array_map(mb_strlen(...), $shared ?: [''])) >= 3) {
             return 60.0 + 20.0 * $jaccard;
         }
 

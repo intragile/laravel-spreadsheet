@@ -103,7 +103,7 @@ final class ValueSniffer
 
     private function looksLikePhone(string $text): bool
     {
-        if ($text === '' || preg_match('/^[\d+()\-\/\s]+$/', $text) !== 1 || preg_match('/^\d{4}-\d{2}-\d{2}$/', $text) === 1) {
+        if ($text === '' || preg_match('/^[\d+()\-\/\s]+$/', $text) !== 1 || preg_match(self::SLASH_DATE, $text) === 1 || preg_match('/^\d{4}-\d{2}-\d{2}$/', $text) === 1) {
             return false;
         }
 

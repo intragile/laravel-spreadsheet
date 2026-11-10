@@ -66,12 +66,23 @@ final class DatabaseTemplateStoreTest extends TestCase
         $this->assertSame('New named', $this->store->findExact('partners', 'fp')?->name);
     }
 
-    public function test_newest_unnamed_wins_and_null_usage_is_oldest(): void
+    public function test_duplicate_headers_round_trip_through_a_template(): void
     {
-        $this->store->save($this->template('partners', ['a'], '', null));
-        $this->store->save($this->template('partners', ['a', 'b'], '', '2026-02-01 00:00:00'));
+        $headers = ['Email', 'Email', 'Név'];
+        $keys = MappingTemplate::mappingKeys($headers);
 
-        $this->assertSame(['a', 'b'], $this->store->findExact('partners', 'fp')?->headers);
+        $this->assertSame([0 => 'email', 1 => 'email#2', 2 => 'nev'], $keys);
+        $this->assertSame([0 => 'a', 2 => 'a#2'], MappingTemplate::mappingKeys(['A', '', 'a']));
+
+        $mapping = [$keys[0] => 'email', $keys[1] => 'alt_email', $keys[2] => 'name'];
+        $this->store->save(new MappingTemplate('partners', 'fp', '', $headers, $mapping));
+
+        $loaded = $this->store->findExact('partners', 'fp');
+
+        $this->assertNotNull($loaded);
+        foreach (MappingTemplate::mappingKeys(['Email', 'Email', 'Név']) as $position => $key) {
+            $this->assertSame([0 => 'email', 1 => 'alt_email', 2 => 'name'][$position], $loaded->mapping[$key]);
+        }
     }
 
     public function test_save_upserts_by_key_fingerprint_and_name(): void
@@ -81,6 +92,8 @@ final class DatabaseTemplateStoreTest extends TestCase
 
         $this->assertSame(1, DB::table('spreadsheet_mapping_templates')->count());
         $this->assertSame(['a' => 'g'], $this->store->findExact('partners', 'fp')?->mapping);
+        $updated = $this->store->findExact('partners', 'fp');
+        $this->assertNull($updated->lastUsedAt ?? null);
     }
 
     public function test_similar_offers_four_of_five_but_not_three_of_four(): void

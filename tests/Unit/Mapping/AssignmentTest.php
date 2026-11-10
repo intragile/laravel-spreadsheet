@@ -21,6 +21,16 @@ final class AssignmentTest extends TestCase
         $this->assertSame([0 => 1, 1 => 0], Assignment::maximize([0 => [0 => 100, 1 => 95], 1 => [0 => 94]]));
     }
 
+    public function test_sparse_matrix_never_returns_zero_score_pairs(): void
+    {
+        $result = Assignment::maximize([0 => [0 => 90], 1 => [0 => 95], 2 => [1 => 70, 2 => 70]]);
+
+        $this->assertSame(0, $result[1]);
+        $this->assertArrayNotHasKey(0, $result);
+        $this->assertContains($result[2], [1, 2]);
+        $this->assertSame([], Assignment::maximize([[0, 0], [0, 0]]));
+    }
+
     public function test_more_rows_than_columns_leaves_the_weakest_row_out(): void
     {
         $result = Assignment::maximize([[10], [90], [50]]);

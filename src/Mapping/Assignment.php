@@ -12,8 +12,8 @@ final class Assignment
     /**
      * @param  array<int|string, array<int|string, int|float>>  $scores  Non-negative scores, `$scores[row][column]`;
      *                                                                   a missing cell counts as 0 and the matrix may be rectangular.
-     * @return array<int|string, int|string> Row key => column key. When there are more rows than columns the
-     *                                       surplus rows are left out.
+     * @return array<int|string, int|string> Row key => column key. Only pairs with a positive score are
+     *                                       returned; rows left without one are omitted.
      */
     public static function maximize(array $scores): array
     {
@@ -64,7 +64,7 @@ final class Assignment
 
         foreach ($rows as $i => $rowKey) {
             foreach ($owner as $j => $row) {
-                if ($row === $i + 1 && $j <= $columnCount) {
+                if ($row === $i + 1 && $j <= $columnCount && (float) ($scores[$rowKey][$columns[$j - 1]] ?? 0) > 0.0) {
                     $result[$rowKey] = $columns[$j - 1];
                 }
             }

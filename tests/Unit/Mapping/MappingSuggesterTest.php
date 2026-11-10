@@ -160,6 +160,35 @@ final class MappingSuggesterTest extends TestCase
         $this->assertSame('y', $this->suggest($any, ['wibble'])->fieldFor(0));
     }
 
+    public function test_sparse_scores_never_map_a_column_at_zero(): void
+    {
+        $import = $this->import([Field::make('email', FieldType::Email), Field::make('city'), Field::make('zip')->label('city zip')]);
+        $mapping = $this->suggest($import, ['email cim', 'email', 'city', 'Megjegyzés']);
+
+        $this->assertSame([null, 'email', 'city', null], array_map($mapping->fieldFor(...), [0, 1, 2, 3]));
+
+        foreach ($mapping->columns as $match) {
+            $this->assertSame($match->field === null, $match->score === 0.0 || $match->confidence === 'none');
+            $this->assertSame($match->field === null, $match->confidence === 'none');
+        }
+    }
+
+    public function test_default_synonyms_do_not_map_unrelated_headers(): void
+    {
+        config(['spreadsheet.import.locales' => ['en', 'hu', 'de']]);
+        $import = $this->import([
+            Field::make('tax_number'), Field::make('email', FieldType::Email), Field::make('date', FieldType::Date),
+            Field::make('domain'), Field::make('address'),
+        ]);
+        $mapping = $this->suggest($import, ['No', 'ID', 'Tartomány', 'Tag', 'Levelezési cím']);
+
+        $this->assertNull($mapping->fieldFor(0));
+        $this->assertNull($mapping->fieldFor(1), '"ID" must not score containment against "tax id"');
+        $this->assertNull($mapping->fieldFor(2));
+        $this->assertNull($mapping->fieldFor(3));
+        $this->assertSame('address', $mapping->fieldFor(4));
+    }
+
     public function test_default_synonyms_cover_common_fields(): void
     {
         config(['spreadsheet.import.locales' => ['en', 'hu', 'de', 'es']]);

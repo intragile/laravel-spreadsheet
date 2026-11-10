@@ -45,6 +45,14 @@ final class ValueSnifferTest extends TestCase
         $this->assertTrue($profile->fits('decimal'));
     }
 
+    public function test_slash_dates_are_not_phones(): void
+    {
+        $profile = (new ValueSniffer)->profile(['04/05/2026', '25/05/2026']);
+
+        $this->assertSame(0.0, $profile->ratio('phone'));
+        $this->assertFalse($profile->fits('phone'));
+    }
+
     public function test_phone_numbers_fit_phone(): void
     {
         $this->assertTrue((new ValueSniffer)->profile(['06201234567', '+36301234567'])->fits('phone'));
