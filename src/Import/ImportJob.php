@@ -10,11 +10,13 @@ use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use IntrAgile\LaravelSpreadsheet\Events\ImportCompleted;
 use IntrAgile\LaravelSpreadsheet\Events\ImportFailed;
+use IntrAgile\LaravelSpreadsheet\Import\Runner\ErrorMessage;
 use Throwable;
 
 /**
  * Runs a pending import on the queue and reports the outcome through events. A mapping that
  * needs confirmation completes with that status; strict mode makes it a failure instead.
+ * Database error messages are reported as a generic text unless the application runs in debug mode.
  */
 final class ImportJob implements ShouldQueue
 {
@@ -36,6 +38,6 @@ final class ImportJob implements ShouldQueue
 
     public function failed(Throwable $exception): void
     {
-        event(new ImportFailed($this->importClass, $exception->getMessage()));
+        event(new ImportFailed($this->importClass, ErrorMessage::for($exception, 'database_failure')));
     }
 }

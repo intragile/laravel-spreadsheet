@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace IntrAgile\LaravelSpreadsheet\Tests\Feature\Import;
 
+use Illuminate\Database\DeadlockException;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
@@ -14,6 +15,7 @@ use IntrAgile\LaravelSpreadsheet\Import\ImportJob;
 use IntrAgile\LaravelSpreadsheet\Import\ImportStatus;
 use IntrAgile\LaravelSpreadsheet\Matching\MatchRule;
 use IntrAgile\LaravelSpreadsheet\Matching\RecordMatcher;
+use IntrAgile\LaravelSpreadsheet\Tests\Support\Imports\FlakyPartnerImport;
 use IntrAgile\LaravelSpreadsheet\Tests\Support\Imports\PartnerImport;
 use IntrAgile\LaravelSpreadsheet\Tests\Support\Models\Partner;
 use RuntimeException;
@@ -91,6 +93,47 @@ final class ImportQueueTest extends ImportTestCase
         Event::assertNotDispatched(ImportCompleted::class);
         $this->assertSame($before, $this->tempFiles());
         $this->assertSame([], Storage::disk('local')->allFiles(), 'No failed-rows file is stored for a failed import.');
+    }
+
+    public function test_inspected_and_confirmed_mapping_runs_on_the_queue(): void
+    {
+        Event::fake([ImportCompleted::class, ImportFailed::class]);
+        $file = $this->file([['Name', 'Email', 'Partner city'], ['Acme', 'a@example.com', 'Pécs']]);
+        $path = $this->upload((string) file_get_contents($file), 'in/review.csv');
+
+        $mapping = PartnerImport::from($path, 'uploads')->inspect();
+        $this->assertTrue($mapping->needsConfirmation());
+
+        PartnerImport::from($path, 'uploads')->mapping($mapping->confirm())->queue();
+
+        Event::assertDispatched(ImportCompleted::class, static fn (ImportCompleted $e): bool => $e->result->status === ImportStatus::Completed
+            && $e->result->created === 1);
+        $this->assertSame('Pécs', Partner::query()->where('name', 'Acme')->value('city'));
+    }
+
+    public function test_persistent_deadlock_fails_the_import_and_cleans_temp_files(): void
+    {
+        Event::fake([ImportCompleted::class, ImportFailed::class]);
+        $before = $this->tempFiles();
+        $path = $this->upload((string) file_get_contents($this->fixture('partners.xlsx')));
+        FlakyPartnerImport::$onSaved = static function (): void {
+            throw new DeadlockException('Deadlock found when trying to get lock; insert into "partners" values (\'SECRET\')');
+        };
+
+        try {
+            FlakyPartnerImport::from($path, 'uploads')->queue();
+            $this->fail('A deadlock on the retry must fail the import.');
+        } catch (DeadlockException) {
+        } finally {
+            FlakyPartnerImport::$onSaved = null;
+        }
+
+        Event::assertDispatched(ImportFailed::class, static fn (ImportFailed $e): bool => $e->importClass === FlakyPartnerImport::class
+            && $e->message === __('spreadsheet::messages.database_failure'));
+        Event::assertNotDispatched(ImportCompleted::class);
+        $this->assertSame(0, Partner::query()->count());
+        $this->assertSame($before, $this->tempFiles());
+        $this->assertSame([], Storage::disk('local')->allFiles());
     }
 
     /** @return list<string> */

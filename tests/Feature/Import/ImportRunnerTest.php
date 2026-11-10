@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace IntrAgile\LaravelSpreadsheet\Tests\Feature\Import;
 
 use Closure;
+use Illuminate\Database\DeadlockException;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
@@ -15,6 +16,7 @@ use IntrAgile\LaravelSpreadsheet\Import\ImportStatus;
 use IntrAgile\LaravelSpreadsheet\Import\PendingImport;
 use IntrAgile\LaravelSpreadsheet\Matching\MatchPolicy;
 use IntrAgile\LaravelSpreadsheet\Matching\MatchRule;
+use IntrAgile\LaravelSpreadsheet\Tests\Support\Imports\FlakyPartnerImport;
 use IntrAgile\LaravelSpreadsheet\Tests\Support\Imports\PartnerImport;
 use IntrAgile\LaravelSpreadsheet\Tests\Support\Models\Partner;
 
@@ -320,6 +322,91 @@ final class ImportRunnerTest extends ImportTestCase
 
         $this->assertSame(8, $result->created);
         $this->assertSame($before, $this->tempFiles());
+    }
+
+    protected function tearDown(): void
+    {
+        FlakyPartnerImport::$onSaved = null;
+
+        parent::tearDown();
+    }
+
+    public function test_deadlock_retries_the_chunk_once(): void
+    {
+        $remaining = 1;
+        FlakyPartnerImport::$onSaved = static function (Model $record, array $values) use (&$remaining): void {
+            if ($values['name'] === 'Partner 3' && $remaining-- > 0) {
+                throw new DeadlockException('Deadlock found when trying to get lock; insert into "partners" ("tax_number") values (\'SECRET-3\')');
+            }
+        };
+
+        $result = FlakyPartnerImport::from($this->fixture('partners.xlsx'))->run();
+
+        $this->assertCounts($result, 8, 0, 0, 2);
+        $this->assertSame(8, Partner::query()->count(), 'Rows written before the deadlock are not doubled by the retry.');
+        $this->assertSame(1, Partner::query()->where('name', 'Partner 3')->count());
+
+        $rows = $this->failedRows($result);
+        $this->assertCount(3, $rows);
+        $text = (string) json_encode($rows);
+        $this->assertStringNotContainsString('Deadlock', $text);
+        $this->assertStringNotContainsString('SECRET', $text);
+    }
+
+    public function test_other_database_errors_get_the_generic_message(): void
+    {
+        FlakyPartnerImport::$onSaved = static function (Model $record, array $values): void {
+            if ($values['name'] === 'Partner 3') {
+                throw new \PDOException('SQLSTATE[HY000]: insert into partners values (SECRET-3)');
+            }
+        };
+
+        $result = FlakyPartnerImport::from($this->fixture('partners.xlsx'))->run();
+
+        $this->assertCounts($result, 7, 0, 0, 3);
+        $rows = $this->failedRows($result);
+        $this->assertSame(['Partner 3', __('spreadsheet::messages.database_error')], [$rows[1][0], $rows[1][8]]);
+    }
+
+    public function test_failed_create_leaves_its_key_free(): void
+    {
+        FlakyPartnerImport::$onSaved = static function (Model $record, array $values): void {
+            if ($values['name'] === 'Boom') {
+                throw new \RuntimeException('hook failed');
+            }
+        };
+        $rows = [['Name', 'Email'], ['Boom', 'a@example.com'], ['Fine', 'a@example.com'], ['Again', 'a@example.com']];
+
+        foreach ([500, 1] as $chunk) {
+            Partner::query()->forceDelete();
+
+            $result = (new PendingImport(new FlakyPartnerImport(MatchPolicy::Skip, [MatchRule::sure('email')]), $this->file($rows)))
+                ->chunkSize($chunk)
+                ->run();
+
+            $this->assertCounts($result, 1, 0, 1, 1);
+            $this->assertSame(['Fine'], Partner::query()->pluck('name')->all(), "Chunk size {$chunk}");
+            $failed = $this->failedRows($result);
+            $this->assertSame(['Boom', 'hook failed'], [$failed[1][0], $failed[1][3]]);
+            $this->assertSame(['Again', __('spreadsheet::messages.duplicate_in_file', ['row' => 3])], [$failed[2][0], $failed[2][3]]);
+        }
+    }
+
+    public function test_rolled_back_update_resyncs_the_shared_record(): void
+    {
+        Partner::query()->create(['name' => 'Old', 'tax_number' => 'T-1']);
+        FlakyPartnerImport::$onSaved = static function (Model $record, array $values): void {
+            if ($values['city'] === 'Boom') {
+                throw new \RuntimeException('hook failed');
+            }
+        };
+        $file = $this->file([['Name', 'City', 'Tax number'], ['X', 'Boom', 'T-1'], ['X', 'Pécs', 'T-1']]);
+
+        $result = (new PendingImport(new FlakyPartnerImport(MatchPolicy::Overwrite, [MatchRule::sure('tax_number')]), $file))->run();
+
+        $this->assertCounts($result, 0, 1, 0, 1);
+        $partner = Partner::query()->sole();
+        $this->assertSame(['X', 'Pécs'], [$partner->name, $partner->city], 'The second row writes the name the rolled-back first row had set in memory.');
     }
 
     /** @return list<string> */

@@ -17,6 +17,7 @@ return [
     'possible_duplicate' => 'Possibly the same as an existing record (#:id); check it before importing.',
     'matches_trashed' => 'Matches a deleted record.',
     'database_error' => 'The row could not be saved.',
+    'database_failure' => 'The import stopped because of a database error.',
     'status' => [
         'error' => 'Error',
         'skipped' => 'Skipped',

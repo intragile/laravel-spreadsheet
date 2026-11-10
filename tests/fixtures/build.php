@@ -31,12 +31,12 @@ for ($i = 1; $i <= 10; $i++) {
 $writer->close();
 
 // hungarian-excel.csv: what Excel saves on a Hungarian system (Windows-1250, semicolons,
-// decimal comma with a space as thousands separator, dotted dates).
+// decimal comma with a no-break space as thousands separator, dotted dates).
 $utf8 = tempnam(sys_get_temp_dir(), 'fixture-');
 $csv = new CsvWriter($utf8, ';');
 $csv->addRow(['Név', 'E-mail', 'Adószám', 'Város', 'Árbevétel', 'Alapítva']);
-$csv->addRow(['Árvíztűrő Tükörfúrógép Kft.', 'info@arvizturo.hu', '11111111-2-41', 'Győr', '1 234,56', '2026.09.14.']);
-$csv->addRow(['Őszi Fűzfa Bt.', 'fuzfa@example.hu', '22222222-2-42', 'Pécs', '987 654,10', '2001.02.03.']);
+$csv->addRow(['Árvíztűrő Tükörfúrógép Kft.', 'info@arvizturo.hu', '11111111-2-41', 'Győr', "1\u{00A0}234,56", '2026.09.14.']);
+$csv->addRow(['Őszi Fűzfa Bt.', 'fuzfa@example.hu', '22222222-2-42', 'Pécs', "987\u{00A0}654,10", '2001.02.03.']);
 $csv->addRow(['Ünnepi Ételbár', 'etelbar@example.hu', '33333333-2-43', 'Szőny', '12,5', '1999.12.31.']);
 $csv->close();
 

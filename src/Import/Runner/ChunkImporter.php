@@ -7,8 +7,9 @@ namespace IntrAgile\LaravelSpreadsheet\Import\Runner;
 use Closure;
 use Exception;
 use Illuminate\Database\ConnectionInterface;
+use Illuminate\Database\DeadlockException;
+use Illuminate\Database\DetectsConcurrencyErrors;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\QueryException;
 use IntrAgile\LaravelSpreadsheet\Import\FailedRows\FailedRowsWriter;
 use IntrAgile\LaravelSpreadsheet\Import\Import;
 use IntrAgile\LaravelSpreadsheet\Import\Pipeline\ProcessedRow;
@@ -21,19 +22,22 @@ use IntrAgile\LaravelSpreadsheet\Matching\MatchPolicy;
 use IntrAgile\LaravelSpreadsheet\Matching\MatchRule;
 use IntrAgile\LaravelSpreadsheet\Matching\MatchStrength;
 use IntrAgile\LaravelSpreadsheet\Matching\RecordMatcher;
+use Throwable;
 
 /**
  * Imports one chunk of rows: normalizes and validates them, drops in-file duplicates, matches
  * the rest against existing records and writes them in one transaction with a savepoint per row.
  *
- * A row that would create a record records its match keys, so a later row with the same key is
- * a duplicate of it. Rows matching a record that existed before the import do not record keys:
+ * A row that created a record records its match keys, so a later row with the same key is a
+ * duplicate of it. Rows matching a record that existed before the import do not record keys:
  * several rows may update the same existing record (adding children, for example).
  *
  * @internal
  */
 final class ChunkImporter
 {
+    use DetectsConcurrencyErrors;
+
     public int $created = 0;
 
     public int $updated = 0;
@@ -71,11 +75,37 @@ final class ChunkImporter
         $this->mayUpdate = $this->policy !== MatchPolicy::Skip;
     }
 
-    /** @param  array<int, array<int, mixed>>  $chunk  Row number => cells. */
+    /**
+     * Imports a chunk. When the database aborts the chunk's transaction because of a deadlock or
+     * another concurrency error, the chunk is run once more from scratch; a second such error
+     * fails the import.
+     *
+     * @param  array<int, array<int, mixed>>  $chunk  Row number => cells.
+     */
     public function import(array $chunk): void
     {
-        /** @var array<int, array{0: RowStatus, 1: string, 2: array<int, mixed>}> $failures */
-        $failures = [];
+        try {
+            $outcome = $this->attempt($chunk);
+        } catch (Throwable $e) {
+            if (! $this->isConcurrencyError($e)) {
+                throw $e;
+            }
+
+            $outcome = $this->attempt($chunk);
+        }
+
+        $this->apply($outcome);
+    }
+
+    /**
+     * Runs one attempt of a chunk. Nothing outside the database transaction changes, so a failed
+     * attempt leaves no trace in the counters, the failed-rows file or the key store.
+     *
+     * @param  array<int, array<int, mixed>>  $chunk
+     */
+    private function attempt(array $chunk): ChunkOutcome
+    {
+        $outcome = new ChunkOutcome;
         $candidates = [];
 
         foreach ($chunk as $number => $cells) {
@@ -86,7 +116,7 @@ final class ChunkImporter
                 $update = $this->mayUpdate ? $this->processor->process($number, $cells, true) : null;
 
                 if ($update === null || ! $update->isValid()) {
-                    $failures[$number] = [RowStatus::Error, $this->join($row->errors), $cells];
+                    $outcome->fail($number, RowStatus::Error, $this->join($row->errors), $cells);
 
                     continue;
                 }
@@ -99,47 +129,42 @@ final class ChunkImporter
             ? []
             : $this->matcher->match($this->import, array_map(static fn (array $candidate): array => $candidate[0]->values, $candidates));
 
-        /** @var array<int, array{0: ProcessedRow, 1: Model|null}> $writes */
+        /** @var array<int, array{0: ProcessedRow, 1: Model|null, 2: array<string, array{0: string, 1: MatchStrength}>}> $writes */
         $writes = [];
 
         foreach ($candidates as $number => [$row, $update]) {
             $match = $matches[$number] ?? null;
-            $duplicate = $this->duplicateOf($row->values, $number, $match === null && $row->isValid());
+            $keys = $this->keysOf($row->values);
 
-            if ($duplicate !== null) {
-                [$first, $strength] = $duplicate;
-                $failures[$number] = $strength === MatchStrength::Sure
-                    ? [RowStatus::Skipped, $this->message('duplicate_in_file', ['row' => $first]), $row->cells]
-                    : [RowStatus::Review, $this->message('possible_duplicate_in_file', ['row' => $first]), $row->cells];
-
+            if ($this->rejectDuplicate($outcome, $number, $row->cells, $this->recordedBefore($keys))) {
                 continue;
             }
 
             if ($match === null) {
                 if ($row->isValid()) {
-                    $writes[$number] = [$row, null];
+                    $writes[$number] = [$row, null, $keys];
                 } else {
-                    $failures[$number] = [RowStatus::Error, $this->join($row->errors), $row->cells];
+                    $outcome->fail($number, RowStatus::Error, $this->join($row->errors), $row->cells);
                 }
 
                 continue;
             }
 
             if ($match->trashed) {
-                $failures[$number] = [RowStatus::Error, $this->message('matches_trashed'), $row->cells];
+                $outcome->fail($number, RowStatus::Error, $this->message('matches_trashed'), $row->cells);
 
                 continue;
             }
 
             if ($match->strength === MatchStrength::Suspicious) {
                 $key = $match->record->getKey();
-                $failures[$number] = [RowStatus::Review, $this->message('possible_duplicate', ['id' => is_scalar($key) ? (string) $key : '']), $row->cells];
+                $outcome->fail($number, RowStatus::Review, $this->message('possible_duplicate', ['id' => is_scalar($key) ? (string) $key : '']), $row->cells);
 
                 continue;
             }
 
             if ($this->policy === MatchPolicy::Skip) {
-                $this->skipped++;
+                $outcome->skipped++;
 
                 continue;
             }
@@ -147,23 +172,94 @@ final class ChunkImporter
             $update ??= $this->processor->process($number, $row->cells, true);
 
             if (! $update->isValid()) {
-                $failures[$number] = [RowStatus::Error, $this->join($update->errors), $row->cells];
+                $outcome->fail($number, RowStatus::Error, $this->join($update->errors), $row->cells);
 
                 continue;
             }
 
-            $writes[$number] = [$update, $match->record];
+            $writes[$number] = [$update, $match->record, $keys];
         }
 
-        foreach ($this->write($writes) as $number => $outcome) {
-            match ($outcome) {
-                'created' => $this->created++,
-                'updated' => $this->updated++,
-                'skipped' => $this->skipped++,
-                default => $failures[$number] = [RowStatus::Error, $outcome, $writes[$number][0]->cells],
+        if ($writes !== []) {
+            $this->connection->transaction(fn () => $this->write($writes, $outcome));
+        }
+
+        return $outcome;
+    }
+
+    /**
+     * Writes the rows in order, each in its own savepoint so a failing row rolls back alone. A
+     * row whose key a row of this chunk has just created is a duplicate of that row; a row whose
+     * create failed leaves its keys free for the rows after it.
+     *
+     * @param  array<int, array{0: ProcessedRow, 1: Model|null, 2: array<string, array{0: string, 1: MatchStrength}>}>  $writes
+     */
+    private function write(array $writes, ChunkOutcome $outcome): void
+    {
+        /** @var array<string, array<string, int>> $created Rule id => key => row number. */
+        $created = [];
+
+        foreach ($writes as $number => [$row, $existing, $keys]) {
+            $first = null;
+
+            foreach ($keys as $ruleId => [$key, $strength]) {
+                if (isset($created[$ruleId][$key])) {
+                    $first = [$created[$ruleId][$key], $strength];
+
+                    break;
+                }
+            }
+
+            if ($this->rejectDuplicate($outcome, $number, $row->cells, $first)) {
+                continue;
+            }
+
+            try {
+                $result = $this->connection->transaction(fn (): string => $existing === null
+                    ? $this->create($row->values)
+                    : $this->update($existing, $row->values));
+            } catch (Exception $e) {
+                // The database has rolled back the whole transaction: let the chunk start over.
+                if ($this->isConcurrencyError($e)) {
+                    throw $e;
+                }
+
+                if ($existing !== null) {
+                    $this->resync($existing);
+                }
+
+                $outcome->fail($number, RowStatus::Error, ErrorMessage::for($e, 'database_error'), $row->cells);
+
+                continue;
+            }
+
+            match ($result) {
+                'created' => $outcome->created++,
+                'updated' => $outcome->updated++,
+                default => $outcome->skipped++,
             };
+
+            if ($result === 'created') {
+                foreach ($keys as $ruleId => [$key]) {
+                    $created[$ruleId][$key] = $number;
+                    $outcome->createdKeys[] = [$ruleId, $key, $number];
+                }
+            }
+        }
+    }
+
+    /** Commits the outcome of a successful attempt to the counters, the key store and the failed-rows file. */
+    private function apply(ChunkOutcome $outcome): void
+    {
+        foreach ($outcome->createdKeys as [$ruleId, $key, $number]) {
+            $this->keys?->firstSeen($ruleId, $key, $number);
         }
 
+        $this->created += $outcome->created;
+        $this->updated += $outcome->updated;
+        $this->skipped += $outcome->skipped;
+
+        $failures = $outcome->failures;
         ksort($failures);
 
         foreach ($failures as [$status, $message, $cells]) {
@@ -178,35 +274,39 @@ final class ChunkImporter
     }
 
     /**
-     * Writes the rows in one transaction, each in its own savepoint so a failing row rolls back alone.
+     * Records a duplicate row in the outcome.
      *
-     * @param  array<int, array{0: ProcessedRow, 1: Model|null}>  $writes
-     * @return array<int, string> Row number => 'created', 'updated', 'skipped' or an error message.
+     * @param  array<int, mixed>  $cells
+     * @param  array{0: int, 1: MatchStrength}|null  $first  The earlier row and the strength of the shared rule.
      */
-    private function write(array $writes): array
+    private function rejectDuplicate(ChunkOutcome $outcome, int $number, array $cells, ?array $first): bool
     {
-        if ($writes === []) {
-            return [];
+        if ($first === null) {
+            return false;
         }
 
-        /** @var array<int, string> $outcomes */
-        $outcomes = [];
+        [$row, $strength] = $first;
 
-        $this->connection->transaction(function () use ($writes, &$outcomes): void {
-            foreach ($writes as $number => [$row, $existing]) {
-                try {
-                    $outcomes[$number] = $this->connection->transaction(fn (): string => $existing === null
-                        ? $this->create($row->values)
-                        : $this->update($existing, $row->values));
-                } catch (Exception $e) {
-                    $outcomes[$number] = $e instanceof QueryException && ! config('app.debug')
-                        ? $this->message('database_error')
-                        : $e->getMessage();
-                }
-            }
-        });
+        $strength === MatchStrength::Sure
+            ? $outcome->fail($number, RowStatus::Skipped, $this->message('duplicate_in_file', ['row' => $row]), $cells)
+            : $outcome->fail($number, RowStatus::Review, $this->message('possible_duplicate_in_file', ['row' => $row]), $cells);
 
-        return $outcomes;
+        return true;
+    }
+
+    /** Reloads a record whose update was rolled back, so rows sharing the instance see its stored state. */
+    private function resync(Model $record): void
+    {
+        try {
+            $record->refresh();
+        } catch (Exception) {
+            // A record that cannot be reloaded is left as is; its own row is reported already.
+        }
+    }
+
+    private function isConcurrencyError(Throwable $e): bool
+    {
+        return $e instanceof DeadlockException || $this->causedByConcurrencyError($e);
     }
 
     /** @param  array<string, mixed>  $values */
@@ -244,16 +344,15 @@ final class ChunkImporter
     }
 
     /**
-     * The earlier row of this file that created a record with one of the row's keys, and the
-     * strength of the rule that matched. A row that will create a record records its keys.
+     * The row's key for every match rule it has all values for.
      *
      * @param  array<string, mixed>  $values
-     * @return array{0: int, 1: MatchStrength}|null
+     * @return array<string, array{0: string, 1: MatchStrength}> Rule id => [key, rule strength].
      */
-    private function duplicateOf(array $values, int $number, bool $record): ?array
+    private function keysOf(array $values): array
     {
         if ($this->keys === null) {
-            return null;
+            return [];
         }
 
         $keys = [];
@@ -261,24 +360,27 @@ final class ChunkImporter
         foreach ($this->rules as $position => $rule) {
             $parts = $this->matchKey->parts($this->canonicalizers[$position], static fn (string $field): mixed => $values[$field] ?? null);
 
-            if ($parts === null) {
-                continue;
+            if ($parts !== null) {
+                $keys[$rule->id()] = [MatchKey::hash($rule, $parts), $rule->strength];
             }
-
-            $key = MatchKey::hash($rule, $parts);
-
-            $first = $this->keys->seen($rule->id(), $key);
-
-            if ($first !== null && $first !== $number) {
-                return [$first, $rule->strength];
-            }
-
-            $keys[$rule->id()] = $key;
         }
 
-        if ($record) {
-            foreach ($keys as $ruleId => $key) {
-                $this->keys->firstSeen($ruleId, $key, $number);
+        return $keys;
+    }
+
+    /**
+     * The row of an earlier chunk that created a record with one of these keys.
+     *
+     * @param  array<string, array{0: string, 1: MatchStrength}>  $keys
+     * @return array{0: int, 1: MatchStrength}|null
+     */
+    private function recordedBefore(array $keys): ?array
+    {
+        foreach ($keys as $ruleId => [$key, $strength]) {
+            $first = $this->keys?->seen($ruleId, $key);
+
+            if ($first !== null) {
+                return [$first, $strength];
             }
         }
 

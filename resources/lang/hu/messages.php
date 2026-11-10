@@ -17,6 +17,7 @@ return [
     'possible_duplicate' => 'Valószínűleg azonos egy meglévő rekorddal (#:id); importálás előtt ellenőrizze.',
     'matches_trashed' => 'Egy törölt rekorddal egyezik.',
     'database_error' => 'A sort nem sikerült menteni.',
+    'database_failure' => 'Az import adatbázishiba miatt leállt.',
     'status' => [
         'error' => 'Hiba',
         'skipped' => 'Kihagyva',

@@ -14,6 +14,9 @@ final class HungarianCsvImportTest extends ImportTestCase
     {
         config(['spreadsheet.import.locales' => ['hu', 'en']]);
 
+        // Excel writes the thousands separator as a bare no-break space (0xA0 in Windows-1250).
+        $this->assertStringContainsString(";1\xA0234,56;", (string) file_get_contents($this->fixture('hungarian-excel.csv')));
+
         $result = PartnerImport::from($this->fixture('hungarian-excel.csv'))->run();
 
         $this->assertSame(ImportStatus::Completed, $result->status);
