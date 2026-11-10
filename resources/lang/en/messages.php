@@ -31,6 +31,9 @@ return [
     'database_error' => 'The row could not be saved.',
     'database_failure' => 'The import stopped because of a database error.',
     'export_database_failure' => 'The export stopped because of a database error.',
+    'limit_exceeded' => 'The file exceeds a safety limit and was not imported: :reason',
+    'limit_exceeded_during_import' => 'The file exceeds a safety limit; the import stopped and rows before that point may already have been imported: :reason',
+    'cell_limit_hint' => 'The cell limit is set by spreadsheet.import.max_cells (now :max).',
     'status' => [
         'error' => 'Error',
         'skipped' => 'Skipped',

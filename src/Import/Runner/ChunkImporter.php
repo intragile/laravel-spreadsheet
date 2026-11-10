@@ -8,6 +8,7 @@ use Closure;
 use Illuminate\Database\ConnectionInterface;
 use Illuminate\Database\DeadlockException;
 use Illuminate\Database\DetectsConcurrencyErrors;
+use Illuminate\Database\DetectsLostConnections;
 use Illuminate\Database\Eloquent\Model;
 use IntrAgile\LaravelSpreadsheet\Import\FailedRows\FailedRowsWriter;
 use IntrAgile\LaravelSpreadsheet\Import\Import;
@@ -36,6 +37,7 @@ use Throwable;
 final class ChunkImporter
 {
     use DetectsConcurrencyErrors;
+    use DetectsLostConnections;
 
     public int $created = 0;
 
@@ -197,6 +199,7 @@ final class ChunkImporter
     {
         /** @var array<string, array<string, int>> $created Rule id => key => row number. */
         $created = [];
+        $level = $this->connection->transactionLevel();
 
         foreach ($writes as $number => [$row, $existing, $keys]) {
             $first = null;
@@ -222,6 +225,13 @@ final class ChunkImporter
                 // After a concurrency error the database has rolled back the whole transaction:
                 // let the chunk start over.
                 if ($this->isConcurrencyError($e)) {
+                    throw $e;
+                }
+
+                // A lost connection, or a chunk transaction that is no longer open, means the rows
+                // written so far were rolled back: counting them would report records that do not
+                // exist, so the import stops.
+                if ($this->causedByLostConnection($e) || $this->connection->transactionLevel() < $level) {
                     throw $e;
                 }
 

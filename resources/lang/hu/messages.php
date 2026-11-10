@@ -31,6 +31,9 @@ return [
     'database_error' => 'A sort nem sikerült menteni.',
     'database_failure' => 'Az import adatbázishiba miatt leállt.',
     'export_database_failure' => 'Az export adatbázishiba miatt leállt.',
+    'limit_exceeded' => 'A fájl túllép egy biztonsági korlátot, ezért nem töltődött be: :reason',
+    'limit_exceeded_during_import' => 'A fájl túllép egy biztonsági korlátot; az import leállt, és az előtte lévő sorok egy része már betöltődhetett: :reason',
+    'cell_limit_hint' => 'A cellakorlátot a spreadsheet.import.max_cells állítja (most :max).',
     'status' => [
         'error' => 'Hiba',
         'skipped' => 'Kihagyva',

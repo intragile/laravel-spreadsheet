@@ -10,6 +10,7 @@ use IntrAgile\LaravelSpreadsheet\Import\ImportStatus;
 use IntrAgile\LaravelSpreadsheet\Import\PendingImport;
 use IntrAgile\LaravelSpreadsheet\Matching\MatchPolicy;
 use IntrAgile\LaravelSpreadsheet\Matching\MatchRule;
+use IntrAgile\LaravelSpreadsheet\Tests\Support\Imports\ConnectionBreakingImport;
 use IntrAgile\LaravelSpreadsheet\Tests\Support\Imports\PartnerImport;
 use IntrAgile\LaravelSpreadsheet\Tests\Support\Imports\SensitiveRevenueImport;
 use IntrAgile\LaravelSpreadsheet\Tests\Support\Imports\ThrowingSavedImport;
@@ -50,6 +51,44 @@ final class ImportHardeningTest extends ImportTestCase
         $rows = $this->failedRows($result);
         $this->assertCount(2, $rows);
         $this->assertSame(['Bad', 'b@x.hu', 'Error', '"x" is not a valid backing value'], $rows[1]);
+    }
+
+    public function test_a_row_error_that_rolled_back_the_chunk_transaction_aborts_the_import(): void
+    {
+        ConnectionBreakingImport::$lostConnection = false;
+        $path = $this->file([['Name', 'Email'], ['Good', 'g@x.hu'], ['Bad', 'b@x.hu'], ['Fine', 'f@x.hu']]);
+
+        $error = null;
+
+        try {
+            $result = (new PendingImport(new ConnectionBreakingImport, $path))->run();
+        } catch (\RuntimeException $e) {
+            $error = $e;
+        }
+
+        $this->assertNotNull($error, isset($result) ? "The import completed with {$result->created} created rows; ".Partner::query()->count().' are stored.' : '');
+        $this->assertSame('The transaction was rolled back.', $error->getMessage());
+        $this->assertSame(0, Partner::query()->count());
+    }
+
+    public function test_a_lost_connection_in_a_row_aborts_the_import(): void
+    {
+        ConnectionBreakingImport::$lostConnection = true;
+        $path = $this->file([['Name', 'Email'], ['Good', 'g@x.hu'], ['Bad', 'b@x.hu'], ['Fine', 'f@x.hu']]);
+
+        $error = null;
+
+        try {
+            $result = (new PendingImport(new ConnectionBreakingImport, $path))->run();
+        } catch (\RuntimeException $e) {
+            $error = $e;
+        } finally {
+            ConnectionBreakingImport::$lostConnection = false;
+        }
+
+        $this->assertNotNull($error, isset($result) ? "The import completed with {$result->created} created rows and {$result->failed} failed." : '');
+        $this->assertStringContainsString('server has gone away', $error->getMessage());
+        $this->assertSame(0, Partner::query()->count());
     }
 
     public function test_overwrite_keeps_attributes_whose_cell_is_blank(): void
@@ -127,8 +166,58 @@ final class ImportHardeningTest extends ImportTestCase
         $this->assertSame(0, Partner::query()->count());
     }
 
+    public function test_other_limits_do_not_point_at_the_cell_limit(): void
+    {
+        // One row wider than the 65,536-cell row limit of ODS: a width limit, not the cell count.
+        $path = $this->ods('<table:table-row>'.self::odsText('Name').'</table:table-row>'
+            .'<table:table-row><table:table-cell office:value-type="string" table:number-columns-repeated="70000"><text:p>x</text:p></table:table-cell></table:table-row>');
+
+        try {
+            (new PendingImport(new PartnerImport, $path))->acceptSuggestedMapping()->run();
+            $this->fail('The width limit was not applied.');
+        } catch (LimitExceeded $e) {
+            $this->assertStringContainsString('65536', $e->getMessage());
+            $this->assertStringNotContainsString('max_cells', $e->getMessage());
+        }
+    }
+
+    public function test_a_limit_reached_mid_import_says_earlier_rows_may_be_imported(): void
+    {
+        config(['spreadsheet.import.max_cells' => 5]);
+
+        // Sixty plain rows pass inspection and sampling; the repeated row after them exceeds the limit.
+        $rows = '<table:table-row>'.self::odsText('Name').'</table:table-row>';
+        for ($i = 1; $i <= 60; $i++) {
+            $rows .= '<table:table-row>'.self::odsText('Partner '.$i).'</table:table-row>';
+        }
+        $rows .= '<table:table-row><table:table-cell office:value-type="string" table:number-columns-repeated="10"><text:p>x</text:p></table:table-cell></table:table-row>';
+        $path = $this->ods($rows);
+
+        foreach (['en' => 'rows before that point may already have been imported', 'hu' => 'az előtte lévő sorok egy része már betöltődhetett'] as $locale => $text) {
+            app()->setLocale($locale);
+            Partner::query()->forceDelete();
+
+            try {
+                (new PendingImport(new PartnerImport, $path))->acceptSuggestedMapping()->chunkSize(10)->run();
+                $this->fail('The cell limit was not applied.');
+            } catch (LimitExceeded $e) {
+                $this->assertStringContainsString($text, $e->getMessage());
+                $this->assertStringContainsString('spreadsheet.import.max_cells', $e->getMessage());
+                $this->assertStringNotContainsString('not imported', $e->getMessage());
+            }
+
+            $this->assertSame(60, Partner::query()->count());
+        }
+    }
+
     /** An ODS file whose data row repeats ten times over four columns. */
     private function repeatedOds(): string
+    {
+        return $this->ods('<table:table-row><table:table-cell office:value-type="string"><text:p>Name</text:p></table:table-cell></table:table-row>'
+            .'<table:table-row table:number-rows-repeated="10"><table:table-cell office:value-type="string" table:number-columns-repeated="4"><text:p>Acme</text:p></table:table-cell></table:table-row>');
+    }
+
+    private function ods(string $rows): string
     {
         $path = $this->file([], 'ods');
         $zip = new ZipArchive;
@@ -139,12 +228,16 @@ final class ImportHardeningTest extends ImportTestCase
             .' xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0"'
             .' xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0">'
             .'<office:body><office:spreadsheet><table:table table:name="Sheet1">'
-            .'<table:table-row><table:table-cell office:value-type="string"><text:p>Name</text:p></table:table-cell></table:table-row>'
-            .'<table:table-row table:number-rows-repeated="10"><table:table-cell office:value-type="string" table:number-columns-repeated="4"><text:p>Acme</text:p></table:table-cell></table:table-row>'
+            .$rows
             .'</table:table></office:spreadsheet></office:body></office:document-content>');
         $zip->close();
 
         return $path;
+    }
+
+    private static function odsText(string $text): string
+    {
+        return '<table:table-cell office:value-type="string"><text:p>'.$text.'</text:p></table:table-cell>';
     }
 
     /** @return list<string> */

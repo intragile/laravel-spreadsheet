@@ -7,6 +7,7 @@ namespace IntrAgile\LaravelSpreadsheet\Import;
 use DateTimeImmutable;
 use Illuminate\Contracts\Validation\Factory as ValidationFactory;
 use Illuminate\Support\Facades\Storage;
+use IntrAgile\LaravelSpreadsheet\Exceptions\ImportLimitExceeded;
 use IntrAgile\LaravelSpreadsheet\Exceptions\MappingNeedsConfirmation;
 use IntrAgile\LaravelSpreadsheet\Import\FailedRows\FailedRowsWriter;
 use IntrAgile\LaravelSpreadsheet\Import\Pipeline\RowProcessor;
@@ -104,6 +105,8 @@ final class ImportRunner
 
             $reader = Spreadsheet::read($local, ReaderOptions::fromConfig(), $source->format);
 
+            $committed = false;
+
             try {
                 $chunk = [];
 
@@ -116,6 +119,7 @@ final class ImportRunner
 
                     if (count($chunk) >= $chunkSize) {
                         $importer->import($chunk);
+                        $committed = true;
                         $chunk = [];
                     }
                 }
@@ -123,6 +127,14 @@ final class ImportRunner
                 if ($chunk !== []) {
                     $importer->import($chunk);
                 }
+            } catch (LimitExceeded $e) {
+                // A limit found while streaming the rows (for example ODS repeats far down the
+                // sheet) stops an import whose earlier chunks are already committed.
+                if ($committed && ! $e instanceof ImportLimitExceeded) {
+                    throw new ImportLimitExceeded(self::limitMessage('limit_exceeded_during_import', $e), true, $e);
+                }
+
+                throw $e;
             } finally {
                 $reader->close();
             }
@@ -226,7 +238,8 @@ final class ImportRunner
     }
 
     /**
-     * Names the setting behind the cell limit when a file exceeds a reader safety limit.
+     * Turns a reader safety-limit failure into a translated message; the cell-count limit also
+     * names the setting behind it.
      *
      * @template T
      *
@@ -237,13 +250,25 @@ final class ImportRunner
     {
         try {
             return $callback();
+        } catch (ImportLimitExceeded $e) {
+            throw $e;
         } catch (LimitExceeded $e) {
-            throw new LimitExceeded(
-                sprintf('The file exceeds a safety limit and was not imported: %s The cell limit is set by spreadsheet.import.max_cells (now %d).', $e->getMessage(), ReaderOptions::maxCells()),
-                0,
-                $e,
-            );
+            throw new ImportLimitExceeded(self::limitMessage('limit_exceeded', $e), false, $e);
         }
+    }
+
+    private static function limitMessage(string $key, LimitExceeded $e): string
+    {
+        $message = (string) __('spreadsheet::messages.'.$key, ['reason' => $e->getMessage()]);
+        $max = ReaderOptions::maxCells();
+
+        // The reader's own wording of its cell-count limit (XLS cell count, ODS repeat expansion).
+        $cellLimit = in_array($e->getMessage(), [
+            sprintf('The workbook holds more than %d cells, which exceeds maxCells.', $max),
+            sprintf('Repeated cells and rows expand to more than %d cells.', $max),
+        ], true);
+
+        return $cellLimit ? $message.' '.__('spreadsheet::messages.cell_limit_hint', ['max' => $max]) : $message;
     }
 
     private function copy(string $disk, string $path, string $local): void
