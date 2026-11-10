@@ -4,6 +4,11 @@ declare(strict_types=1);
 
 namespace IntrAgile\LaravelSpreadsheet\Import;
 
+use Closure;
+use IntrAgile\LaravelSpreadsheet\Normalization\NormalizationContext;
+use IntrAgile\LaravelSpreadsheet\Normalization\NormalizedValue;
+use IntrAgile\LaravelSpreadsheet\Normalization\Normalizer;
+
 /**
  * Describes one importable field: its key in the canonical row, its type, the labels and
  * synonyms used to match file headers, and the model attribute it is written to.
@@ -25,6 +30,9 @@ final class Field
     private bool $sensitive = false;
 
     private ?string $attribute = null;
+
+    /** @var Normalizer|Closure(mixed, Field, NormalizationContext): NormalizedValue|null */
+    private Normalizer|Closure|null $normalizer = null;
 
     /** @var array<string, array<string, string>> */
     private array $options = [];
@@ -61,7 +69,7 @@ final class Field
         return $this;
     }
 
-    /** @param  array<string, string|array<string, string>>  $valueToLabels  Labels are a string or a locale => label map. */
+    /** @param  array<int|string, string|array<string, string>>  $valueToLabels  Labels are a string or a locale => label map. */
     public function options(array $valueToLabels): self
     {
         $this->options = [];
@@ -87,6 +95,18 @@ final class Field
         return $this;
     }
 
+    /**
+     * Replaces the default normalizer of the field's type.
+     *
+     * @param  Normalizer|Closure(mixed, Field, NormalizationContext): NormalizedValue  $normalizer
+     */
+    public function normalizeUsing(Normalizer|Closure $normalizer): self
+    {
+        $this->normalizer = $normalizer;
+
+        return $this;
+    }
+
     public function attribute(): string
     {
         return $this->attribute ?? $this->key;
@@ -108,6 +128,12 @@ final class Field
     public function optionMap(): array
     {
         return $this->options;
+    }
+
+    /** @return Normalizer|Closure(mixed, Field, NormalizationContext): NormalizedValue|null */
+    public function normalizer(): Normalizer|Closure|null
+    {
+        return $this->normalizer;
     }
 
     public function isRequired(): bool

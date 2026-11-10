@@ -10,6 +10,8 @@ use IntrAgile\LaravelSpreadsheet\Import\Import;
 use IntrAgile\LaravelSpreadsheet\Matching\Canonicalizers\TextCanonicalizer;
 use IntrAgile\LaravelSpreadsheet\Matching\MatchPolicy;
 use IntrAgile\LaravelSpreadsheet\Matching\MatchRule;
+use IntrAgile\LaravelSpreadsheet\Normalization\NormalizationContext;
+use IntrAgile\LaravelSpreadsheet\Normalization\NormalizedValue;
 use IntrAgile\LaravelSpreadsheet\Tests\Support\Models\Partner;
 use IntrAgile\LaravelSpreadsheet\Tests\TestCase;
 use InvalidArgumentException;
@@ -113,6 +115,16 @@ final class FieldTest extends TestCase
         (new PartnerImportFixture(MatchPolicy::Overwrite))->fill($record, ['name' => 'Changed'], true);
 
         $this->assertSame('Changed', $record->name);
+    }
+
+    public function test_normalize_using_stores_the_override(): void
+    {
+        $closure = fn (mixed $value, Field $field, NormalizationContext $context): NormalizedValue => NormalizedValue::ok($value);
+
+        $field = Field::make('x')->normalizeUsing($closure);
+
+        $this->assertSame($closure, $field->normalizer());
+        $this->assertNull(Field::make('y')->normalizer());
     }
 }
 
