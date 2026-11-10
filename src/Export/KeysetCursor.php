@@ -6,6 +6,7 @@ namespace IntrAgile\LaravelSpreadsheet\Export;
 
 use Closure;
 use Generator;
+use Illuminate\Contracts\Database\Query\Expression;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use LogicException;
@@ -24,9 +25,10 @@ use LogicException;
  *
  * The key is always compared table-qualified, and a builder without explicit columns selects
  * only the model table's columns, so joins and relation queries (BelongsToMany, HasManyThrough)
- * neither make the key ambiguous nor overwrite model attributes with joined columns. An
- * unqualified sort column of a joined query is qualified with the model table when it is one
- * of that table's columns; a selected alias is used as is.
+ * neither make the key ambiguous nor overwrite model attributes with joined columns. The sort
+ * column is a selected column alias (compared through the column behind it), a column of the model
+ * table (qualified with the model table when the query joins others), or that column qualified
+ * with the model table; a column of a joined table must be selected under an alias.
  */
 final class KeysetCursor
 {
@@ -34,7 +36,7 @@ final class KeysetCursor
      * @template TModel of Model
      *
      * @param  Closure(): Builder<TModel>  $queryFactory  returns a fresh, filtered builder on every call
-     * @param  string|null  $sortColumn  a column of the model table (optionally table-qualified) or a selected alias
+     * @param  string|null  $sortColumn  a selected alias, or a column of the model table (optionally table-qualified)
      * @return Generator<int, TModel>
      */
     public static function each(Closure $queryFactory, ?string $sortColumn = null, string $direction = 'asc', int $chunkSize = 1000): Generator
@@ -53,15 +55,7 @@ final class KeysetCursor
         $sortAttribute = null;
 
         if ($sortColumn !== null) {
-            $dot = strrpos($sortColumn, '.');
-            $sortAttribute = $dot === false ? $sortColumn : substr($sortColumn, $dot + 1);
-            $isKey = $sortAttribute === $model->getKeyName() && ($dot === false || $sortColumn === $keyColumn);
-
-            if ($isKey) {
-                $sortAttribute = null;
-            } else {
-                $sortExpression = $dot === false ? self::qualify($first, $sortColumn) : $sortColumn;
-            }
+            [$sortExpression, $sortAttribute] = self::resolveSort($first, $sortColumn);
         }
 
         $phases = $sortExpression === null ? [false] : [true, false];
@@ -122,6 +116,76 @@ final class KeysetCursor
                 }
             }
         }
+    }
+
+    /**
+     * The SQL column to sort and compare by, and the attribute of a fetched row holding its
+     * value; [null, null] when the sort column is the primary key.
+     *
+     * A selected column alias sorts by the column behind it, so the comparison never depends on
+     * a database resolving aliases in WHERE. A column of the model table may be table-qualified;
+     * a column of another table must be selected under an alias, because only the alias tells
+     * which attribute of the fetched row holds its value. A raw-expression alias is refused: it
+     * cannot be compared portably.
+     *
+     * @param  Builder<covariant Model>  $query
+     * @return array{0: string|null, 1: string|null}
+     */
+    private static function resolveSort(Builder $query, string $column): array
+    {
+        $model = $query->getModel();
+        $aliases = self::aliases($query);
+
+        if (! str_contains($column, '.') && array_key_exists($column, $aliases)) {
+            if ($aliases[$column] === null) {
+                throw new LogicException("The sort alias \"{$column}\" names a raw expression, which cannot be compared portably; sort by a column or a plain column alias.");
+            }
+
+            return [$aliases[$column], $column];
+        }
+
+        $dot = strrpos($column, '.');
+        $attribute = $dot === false ? $column : substr($column, $dot + 1);
+
+        if ($dot !== false && substr($column, 0, $dot) !== $model->getTable()) {
+            throw new LogicException(
+                "The sort column \"{$column}\" belongs to another table than the model's; select it under an alias, for example addSelect('{$column} as sort_value'), and sort by the alias.",
+            );
+        }
+
+        if (array_key_exists($attribute, $aliases)) {
+            throw new LogicException("The sort column \"{$column}\" is shadowed by the selected alias \"{$attribute}\"; sort by the alias or rename it.");
+        }
+
+        if ($attribute === $model->getKeyName()) {
+            return [null, null];
+        }
+
+        return [$dot === false ? self::qualify($query, $column) : $column, $attribute];
+    }
+
+    /**
+     * Aliased columns of the select clause: alias => the column behind it, or null for a raw
+     * expression.
+     *
+     * @param  Builder<covariant Model>  $query
+     * @return array<string, string|null>
+     */
+    private static function aliases(Builder $query): array
+    {
+        $base = $query->getQuery();
+        $aliases = [];
+
+        foreach ($base->columns ?? [] as $column) {
+            $raw = $column instanceof Expression;
+            $text = $raw ? (string) $column->getValue($base->getGrammar()) : $column;
+
+            if (preg_match('/^(.+)\s+as\s+[`"\[]?([^`"\]\s.]+)[`"\]]?$/is', trim($text), $m) === 1) {
+                $aliases[$m[2]] = $raw ? null : $m[1];
+            }
+        }
+
+        return $aliases;
     }
 
     /**

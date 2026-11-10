@@ -12,6 +12,7 @@ use IntrAgile\LaravelSpreadsheet\Tests\Support\Models\Domain;
 use IntrAgile\LaravelSpreadsheet\Tests\Support\Models\DomainContact;
 use IntrAgile\LaravelSpreadsheet\Tests\Support\Models\Partner;
 use IntrAgile\LaravelSpreadsheet\Tests\Support\Models\Tag;
+use LogicException;
 
 final class ExportRelationQueryTest extends ExportTestCase
 {
@@ -108,5 +109,79 @@ final class ExportRelationQueryTest extends ExportTestCase
 
         $this->assertSame(6, $count);
         $this->assertSame($expected, array_slice($this->readRows($path), 1));
+    }
+
+    public function test_sort_column_of_a_joined_table_is_refused(): void
+    {
+        $this->seedContactsOfTwoPartners();
+        $query = Contact::query()->join('partners', 'partners.id', '=', 'contacts.partner_id');
+
+        $this->expectException(LogicException::class);
+        $this->expectExceptionMessage('addSelect');
+
+        Export::fromQuery($query)->chunkSize(2)->sortBy('partners.name')
+            ->withColumns([Column::make('Name', 'name')])
+            ->writeTo($this->tempFile('csv'));
+    }
+
+    public function test_model_table_qualified_sort_column_pages_a_joined_query(): void
+    {
+        $this->seedContactsOfTwoPartners();
+        $query = Contact::query()->join('partners', 'partners.id', '=', 'contacts.partner_id');
+
+        $path = $this->tempFile('csv');
+        Export::fromQuery($query)->chunkSize(2)->sortBy('contacts.name', 'desc')
+            ->withColumns([Column::make('Name', 'name')])
+            ->writeTo($path);
+
+        $this->assertSame([['Echo'], ['Delta'], ['Charlie'], ['Bravo'], ['Alpha']], array_slice($this->readRows($path), 1));
+    }
+
+    public function test_alias_named_like_a_model_column_pages_by_its_own_expression(): void
+    {
+        $this->seedContactsOfTwoPartners();
+
+        // "name" is a contacts column too; the alias must win in the cursor, not contacts.name.
+        $query = Contact::query()
+            ->join('partners', 'partners.id', '=', 'contacts.partner_id')
+            ->select('contacts.id', 'contacts.name as contact', 'partners.name as name');
+
+        $path = $this->tempFile('csv');
+        Export::fromQuery($query)->chunkSize(2)->sortBy('name')
+            ->withColumns([Column::make('Partner', 'name'), Column::make('Contact', 'contact')])
+            ->writeTo($path);
+
+        $this->assertSame(
+            [['Ypsilon', 'Bravo'], ['Ypsilon', 'Delta'], ['Zeta', 'Alpha'], ['Zeta', 'Charlie'], ['Zeta', 'Echo']],
+            array_slice($this->readRows($path), 1),
+        );
+    }
+
+    public function test_raw_alias_sort_is_refused(): void
+    {
+        $this->seedContactsOfTwoPartners();
+
+        $query = Contact::query()
+            ->join('partners', 'partners.id', '=', 'contacts.partner_id')
+            ->select('contacts.id')
+            ->selectRaw('upper(partners.name) as name');
+
+        $this->expectException(LogicException::class);
+        $this->expectExceptionMessage('raw expression');
+
+        Export::fromQuery($query)->chunkSize(2)->sortBy('name')
+            ->withColumns([Column::make('Id', 'id'), Column::make('Partner', 'name')])
+            ->writeTo($this->tempFile('csv'));
+    }
+
+    /** Contacts Alpha..Echo; Ypsilon owns Bravo and Delta, Zeta the rest. Contact ids do not follow partner names. */
+    private function seedContactsOfTwoPartners(): void
+    {
+        $zeta = Partner::query()->create(['name' => 'Zeta']);
+        $ypsilon = Partner::query()->create(['name' => 'Ypsilon']);
+
+        foreach (['Alpha' => $zeta, 'Bravo' => $ypsilon, 'Charlie' => $zeta, 'Delta' => $ypsilon, 'Echo' => $zeta] as $name => $partner) {
+            Contact::query()->create(['name' => $name, 'partner_id' => $partner->id]);
+        }
     }
 }
