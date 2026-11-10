@@ -23,23 +23,6 @@ jobs:
           php-version: ${{ matrix.php }}
           extensions: mbstring, zip, xmlreader, dom, iconv, pdo_sqlite, intl
           coverage: none
-      # A path repository only resolves next to a local checkout of the core; CI installs the
-      # core from Packagist instead. This is a no-op once composer.json has no path repository.
-      - name: Drop local path repositories
-        run: |
-          php -r '
-            $file = "composer.json";
-            $json = json_decode(file_get_contents($file), true, 512, JSON_THROW_ON_ERROR);
-            if (isset($json["repositories"]) && is_array($json["repositories"])) {
-                $repositories = $json["repositories"];
-                $kept = array_filter($repositories, fn (mixed $r): bool => ! (is_array($r) && ($r["type"] ?? null) === "path"));
-                if (count($kept) !== count($repositories)) {
-                    $json["repositories"] = array_is_list($repositories) ? array_values($kept) : $kept;
-                    if ($json["repositories"] === []) { unset($json["repositories"]); }
-                    file_put_contents($file, json_encode($json, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)."\n");
-                }
-            }
-          '
       - run: composer require "illuminate/support:${{ matrix.laravel }}" --no-update --no-interaction
       - run: composer update --prefer-dist --no-interaction --no-progress
       - run: vendor/bin/phpunit

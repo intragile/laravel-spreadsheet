@@ -30,18 +30,6 @@
             "homepage": "https://intragile.eu"
         }
     ],
-    "repositories": [
-        {
-            "type": "path",
-            "url": "../php-spreadsheet",
-            "options": {
-                "symlink": true,
-                "versions": {
-                    "intragile/php-spreadsheet": "1.0.0"
-                }
-            }
-        }
-    ],
     "require": {
         "php": "^8.3",
         "ext-pdo_sqlite": "*",
