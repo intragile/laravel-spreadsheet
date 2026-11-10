@@ -117,10 +117,15 @@ lapozódnak; explicit `select()` oszlopok nélkül csak a modell táblájának o
 joinolt `id` vagy pivotoszlop nem írhatja felül a modellét. A `sortBy()` a modell táblájának egy
 oszlopát fogadja, önmagában vagy a modell saját táblanevével minősítve (az önmagában álló oszlopot a
 csomag automatikusan minősíti, ha a lekérdezés más táblát is joinol), vagy a select egy oszlopaliasát,
-amelyet a mögötte álló oszlopon keresztül hasonlít össze. Egy joinolt tábla oszlopa `LogicException`
-kivételt dob: válaszd ki aliasszal (`->addSelect('partners.name as partner_name')`), és az alias szerint
-rendezz. A `selectRaw()` aliasát is elutasítja, mert egy nyers kifejezés nem hasonlítható össze
-hordozhatóan.
+amelyet a mögötte álló oszlopon keresztül hasonlít össze. Egy joinolt tábla táblanévvel minősített
+oszlopa szerinti rendezés (`'partners.name'`) `LogicException` kivételt dob: válaszd ki aliasszal
+(`->addSelect('partners.name as partner_name')`), és az alias szerint rendezz. A nem kiválasztott,
+minősítés nélküli oszlop is hibát ad, csendben sosem lapoz rosszul. Elutasítja a `selectRaw()` aliasát,
+mert egy nyers kifejezés nem hasonlítható össze hordozhatóan, és a select azon alias nélküli joinolt
+oszlopát is, amely a lekért sorokban felülírná a kulcsot vagy a rendezési oszlopot
+(`select('contacts.*', 'partners.name')` és `sortBy('name')`). Egy joinolt tábla `*` oszlopait (vagy a
+`select('*')`-ot) nem tudja ellenőrizni: ezt ne kombináld olyan kulccsal vagy rendezési oszloppal,
+amely a joinolt táblában is megvan.
 
 ### Osztály alapú export
 

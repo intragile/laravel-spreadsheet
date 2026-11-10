@@ -115,9 +115,13 @@ same way on every database. The primary key is compared table-qualified, so join
 the model table's columns, so a joined `id` or pivot column cannot overwrite the model's. `sortBy()` takes
 a column of the model table, plain or qualified with the model's own table (a plain one is qualified
 automatically when the query joins others), or a column alias of the select clause, which is compared
-through the column behind it. A column of a joined table throws `LogicException`: select it under an
-alias (`->addSelect('partners.name as partner_name')`) and sort by the alias. A `selectRaw()` alias is
-refused too, because a raw expression cannot be compared portably.
+through the column behind it. Sorting by a table-qualified column of a joined table (`'partners.name'`)
+throws `LogicException`: select it under an alias (`->addSelect('partners.name as partner_name')`) and
+sort by the alias. An unqualified column that is not selected fails loudly too, it is never paged
+silently. A `selectRaw()` alias is refused, because a raw expression cannot be compared portably, and so
+is an unaliased joined column in the select list that would overwrite the key or the sort column in the
+fetched rows (`select('contacts.*', 'partners.name')` with `sortBy('name')`). A joined table's `*` (or
+`select('*')`) cannot be checked: do not combine it with a key or sort column the joined table also has.
 
 ### Class-based exports
 
