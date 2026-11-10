@@ -174,6 +174,39 @@ final class ExportRelationQueryTest extends ExportTestCase
             ->writeTo($this->tempFile('csv'));
     }
 
+    public function test_sort_column_colliding_with_an_unaliased_joined_column_is_refused(): void
+    {
+        $this->seedContactsOfTwoPartners();
+
+        // partners.name arrives as "name" and overwrites contacts.name in the fetched rows.
+        $query = Contact::query()
+            ->join('partners', 'partners.id', '=', 'contacts.partner_id')
+            ->select('contacts.*', 'partners.name');
+
+        $this->expectException(LogicException::class);
+        $this->expectExceptionMessage('alias');
+
+        Export::fromQuery($query)->chunkSize(2)->sortBy('name')
+            ->withColumns([Column::make('Name', 'name')])
+            ->writeTo($this->tempFile('csv'));
+    }
+
+    public function test_key_colliding_with_an_unaliased_joined_column_is_refused(): void
+    {
+        $this->seedContactsOfTwoPartners();
+
+        $query = Contact::query()
+            ->join('partners', 'partners.id', '=', 'contacts.partner_id')
+            ->select('contacts.*', 'partners.id');
+
+        $this->expectException(LogicException::class);
+        $this->expectExceptionMessage('alias');
+
+        Export::fromQuery($query)->chunkSize(2)
+            ->withColumns([Column::make('Name', 'name')])
+            ->writeTo($this->tempFile('csv'));
+    }
+
     /** Contacts Alpha..Echo; Ypsilon owns Bravo and Delta, Zeta the rest. Contact ids do not follow partner names. */
     private function seedContactsOfTwoPartners(): void
     {

@@ -28,7 +28,10 @@ use LogicException;
  * neither make the key ambiguous nor overwrite model attributes with joined columns. The sort
  * column is a selected column alias (compared through the column behind it), a column of the model
  * table (qualified with the model table when the query joins others), or that column qualified
- * with the model table; a column of a joined table must be selected under an alias.
+ * with the model table; a column of a joined table must be selected under an alias. An unaliased
+ * joined column in the select list that would overwrite the key or the sort attribute is refused;
+ * a `*` of a joined table (or `select('*')`) cannot be checked and must not be combined with a
+ * key or sort column the joined table also has.
  */
 final class KeysetCursor
 {
@@ -49,13 +52,20 @@ final class KeysetCursor
         $first = self::prepare($queryFactory());
         $model = $first->getModel();
         $keyColumn = $model->getQualifiedKeyName();
+        $foreign = self::foreignColumns($first);
+
+        if (isset($foreign[$model->getKeyName()])) {
+            throw new LogicException(
+                "The selected column \"{$foreign[$model->getKeyName()]}\" overwrites the model key in the fetched rows; select it under an alias.",
+            );
+        }
 
         // SQL expression of the sort column and the attribute its value is read from.
         $sortExpression = null;
         $sortAttribute = null;
 
         if ($sortColumn !== null) {
-            [$sortExpression, $sortAttribute] = self::resolveSort($first, $sortColumn);
+            [$sortExpression, $sortAttribute] = self::resolveSort($first, $sortColumn, $foreign);
         }
 
         $phases = $sortExpression === null ? [false] : [true, false];
@@ -129,9 +139,10 @@ final class KeysetCursor
      * cannot be compared portably.
      *
      * @param  Builder<covariant Model>  $query
+     * @param  array<string, string>  $foreign  Unaliased columns of other tables, by base name.
      * @return array{0: string|null, 1: string|null}
      */
-    private static function resolveSort(Builder $query, string $column): array
+    private static function resolveSort(Builder $query, string $column, array $foreign): array
     {
         $model = $query->getModel();
         $aliases = self::aliases($query);
@@ -155,6 +166,12 @@ final class KeysetCursor
 
         if (array_key_exists($attribute, $aliases)) {
             throw new LogicException("The sort column \"{$column}\" is shadowed by the selected alias \"{$attribute}\"; sort by the alias or rename it.");
+        }
+
+        if (isset($foreign[$attribute])) {
+            throw new LogicException(
+                "The sort column \"{$column}\" collides with the selected column \"{$foreign[$attribute]}\", which overwrites it in the fetched rows; select that column under an alias.",
+            );
         }
 
         if ($attribute === $model->getKeyName()) {
@@ -186,6 +203,35 @@ final class KeysetCursor
         }
 
         return $aliases;
+    }
+
+    /**
+     * Unaliased, table-qualified columns of other tables in the select clause, by base name: a
+     * fetched row holds their value under the base name, overwriting a model attribute of the
+     * same name. A `*` of a joined table (or a bare `*`) cannot be resolved without the schema
+     * and is not reported.
+     *
+     * @param  Builder<covariant Model>  $query
+     * @return array<string, string>
+     */
+    private static function foreignColumns(Builder $query): array
+    {
+        $table = $query->getModel()->getTable();
+        $columns = [];
+
+        foreach ($query->getQuery()->columns ?? [] as $column) {
+            if (! is_string($column) || preg_match('/\s+as\s+/i', $column) === 1) {
+                continue;
+            }
+
+            $dot = strrpos($column, '.');
+
+            if ($dot !== false && substr($column, 0, $dot) !== $table && substr($column, $dot + 1) !== '*') {
+                $columns[substr($column, $dot + 1)] = $column;
+            }
+        }
+
+        return $columns;
     }
 
     /**
