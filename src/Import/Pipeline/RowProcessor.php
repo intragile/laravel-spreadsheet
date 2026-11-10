@@ -23,6 +23,12 @@ final class RowProcessor
     /** @var array<int, array{0: Field, 1: NormalizationContext}> */
     private array $columns = [];
 
+    /** @var array<int, array<string, array{0: string, 1: list<mixed>}>> */
+    private array $rules = [];
+
+    /** @var array<string, array<string, string>> */
+    private array $names = [];
+
     public function __construct(
         private readonly Import $import,
         ColumnMapping $mapping,
@@ -83,25 +89,10 @@ final class RowProcessor
     private function validate(array $values, array $failed, bool $isUpdate): array
     {
         $rules = [];
-        $names = [];
 
-        foreach ($isUpdate ? $this->import->updateRules() : $this->import->rules() as $key => $rule) {
-            $root = explode('.', (string) $key)[0];
-
-            if (isset($failed[$root]) || (isset($this->fields[$root]) && ! array_key_exists($root, $values))) {
-                continue;
-            }
-
-            $rules[$key] = $rule;
-        }
-
-        foreach ($this->columns as [$field]) {
-            $names[$field->key] = $this->label($field);
-
-            if (isset($rules[$field->key])) {
-                $rules[$field->key] = $this->fieldRules($field, $rules[$field->key]);
-            } elseif ($field->isRequired() && ! isset($failed[$field->key])) {
-                $rules[$field->key] = ['required'];
+        foreach ($this->rulesFor($isUpdate) as $key => [$root, $rule]) {
+            if (! isset($failed[$root])) {
+                $rules[$key] = $rule;
             }
         }
 
@@ -109,23 +100,91 @@ final class RowProcessor
             return [];
         }
 
-        $validator = $this->validator->make($values, $rules, [], $names);
+        $validator = $this->validator->make($values, $rules, [], $this->names());
 
         return array_values(array_map(strval(...), $validator->errors()->all()));
     }
 
-    /** @return list<mixed> */
-    private function fieldRules(Field $field, mixed $rule): array
+    /**
+     * Rules of one mode, normalized once: [root key, rule list] by rule key.
+     *
+     * @return array<string, array{0: string, 1: list<mixed>}>
+     */
+    private function rulesFor(bool $isUpdate): array
     {
-        $list = is_string($rule) ? explode('|', $rule) : (is_array($rule) ? array_values($rule) : [$rule]);
+        if (isset($this->rules[(int) $isUpdate])) {
+            return $this->rules[(int) $isUpdate];
+        }
 
-        if ($field->isRequired() && ! in_array('required', $list, true)) {
+        $mapped = [];
+        foreach ($this->columns as [$field]) {
+            $mapped[$field->key] = $field;
+        }
+
+        $rules = [];
+
+        foreach ($isUpdate ? $this->import->updateRules() : $this->import->rules() as $key => $rule) {
+            $root = explode('.', (string) $key)[0];
+            $list = is_string($rule) ? explode('|', $rule) : (is_array($rule) ? array_values($rule) : [$rule]);
+
+            if (isset($this->fields[$root])) {
+                if (! isset($mapped[$root])) {
+                    continue;
+                }
+
+                $list = $this->fieldRules($mapped[$root], $list, $isUpdate);
+            }
+
+            $rules[(string) $key] = [$root, $list];
+        }
+
+        if (! $isUpdate) {
+            foreach ($this->fields as $key => $field) {
+                if ($field->isRequired() && ! isset($rules[$key])) {
+                    $rules[$key] = [$key, ['required']];
+                }
+            }
+        }
+
+        return $this->rules[(int) $isUpdate] = $rules;
+    }
+
+    /**
+     * @param  list<mixed>  $list
+     * @return list<mixed>
+     */
+    private function fieldRules(Field $field, array $list, bool $isUpdate): array
+    {
+        if (in_array('required', $list, true)) {
+            return $list;
+        }
+
+        if (! $isUpdate && $field->isRequired()) {
             array_unshift($list, 'required');
-        } elseif (! $field->isRequired() && ! in_array('required', $list, true) && ! in_array('nullable', $list, true)) {
+        } elseif (! in_array('nullable', $list, true)) {
             array_unshift($list, 'nullable');
         }
 
         return $list;
+    }
+
+    /** @return array<string, string> */
+    private function names(): array
+    {
+        $locale = app()->getLocale();
+
+        if (! isset($this->names[$locale])) {
+            $names = [];
+            foreach ($this->columns as [$field]) {
+                $names[$field->key] = $this->label($field);
+            }
+            foreach ($this->fields as $key => $field) {
+                $names[$key] ??= $this->label($field);
+            }
+            $this->names[$locale] = $names;
+        }
+
+        return $this->names[$locale];
     }
 
     private function label(Field $field): string

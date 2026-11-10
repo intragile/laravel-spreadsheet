@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace IntrAgile\LaravelSpreadsheet\Tests\Feature\Import;
 
 use DateTimeImmutable;
+use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Support\Facades\Storage;
 use IntrAgile\LaravelSpreadsheet\Import\FailedRows\FailedRowsWriter;
 use IntrAgile\LaravelSpreadsheet\Import\Pipeline\RowStatus;
@@ -110,6 +111,24 @@ final class FailedRowsWriterTest extends TestCase
         $writer->abort();
 
         $this->assertSame($before, glob(sys_get_temp_dir().'/spreadsheet-failed-*') ?: []);
+    }
+
+    public function test_failed_store_throws_and_removes_the_temp_file(): void
+    {
+        $before = glob(sys_get_temp_dir().'/spreadsheet-failed-*') ?: [];
+        $disk = \Mockery::mock(Filesystem::class);
+        $disk->shouldReceive('writeStream')->once()->andReturn(false);
+        Storage::shouldReceive('disk')->andReturn($disk);
+
+        $writer = new FailedRowsWriter(['A'], Format::Csv, []);
+        $writer->write(['x'], RowStatus::Error, 'm');
+
+        try {
+            $writer->finish(null, 'out');
+            $this->fail('Expected a RuntimeException.');
+        } catch (\RuntimeException) {
+            $this->assertSame($before, glob(sys_get_temp_dir().'/spreadsheet-failed-*') ?: []);
+        }
     }
 
     public function test_memory_flat(): void

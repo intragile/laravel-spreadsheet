@@ -184,4 +184,30 @@ final class RowProcessorTest extends TestCase
 
         $this->assertCount(1, $row->errors);
     }
+
+    public function test_unmapped_required_field_fails_on_create_only(): void
+    {
+        $import = $this->import([Field::make('name')->label('Name'), Field::make('city')->label('City')->required()], ['city' => 'string']);
+        $processor = $this->processor($import, [['name', null]]);
+
+        $create = $processor->process(1, ['Acme']);
+        $this->assertFalse($create->isValid());
+        $this->assertCount(1, $create->errors);
+        $this->assertStringContainsString('City', $create->errors[0]);
+
+        $this->assertTrue($processor->process(1, ['Acme'], true)->isValid());
+    }
+
+    public function test_required_is_injected_on_create_but_not_on_update(): void
+    {
+        $import = $this->import(
+            [Field::make('name')->required()],
+            ['name' => ['string']],
+            ['name' => ['nullable', 'string']],
+        );
+        $processor = $this->processor($import, [['name', null]]);
+
+        $this->assertFalse($processor->process(1, [''])->isValid());
+        $this->assertTrue($processor->process(1, [''], true)->isValid());
+    }
 }

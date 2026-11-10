@@ -90,7 +90,9 @@ final class FailedRowsWriter
             $target = trim($directory, '/').'/'.date('Ymd-His').'-'.bin2hex(random_bytes(6)).'.'.$this->format->value;
 
             try {
-                Storage::disk($disk)->writeStream($target, $stream);
+                if (Storage::disk($disk)->writeStream($target, $stream) === false) {
+                    throw new RuntimeException("Cannot store the failed-rows file at [{$target}].");
+                }
             } finally {
                 fclose($stream);
             }
