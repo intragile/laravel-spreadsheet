@@ -181,6 +181,11 @@ return [
     ],
 
     'failed_rows' => [
+        // Filesystem disk for failed-rows files; null uses the default disk.
+        'disk' => null,
+
+        'directory' => 'spreadsheet/failed-rows',
+
         // Extra header texts, besides the shipped translations, that mark the status and message
         // columns of a failed-rows file so they do not change a file's header fingerprint.
         'headers' => [],
