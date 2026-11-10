@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace IntrAgile\LaravelSpreadsheet\Tests\Unit\Export;
 
 use DateTimeImmutable;
+use Illuminate\Support\Carbon;
 use IntrAgile\LaravelSpreadsheet\Export\Column;
 use IntrAgile\Spreadsheet\Cell;
 use IntrAgile\Spreadsheet\Style;
@@ -55,6 +56,13 @@ final class ColumnTest extends TestCase
 
         $this->assertSame($date, Column::make('D', 'd')->cell(['d' => $date]));
         $this->assertSame(5, Column::make('N', 'n')->cell(['n' => 5]));
+    }
+
+    public function test_carbon_dates_stay_date_values(): void
+    {
+        $date = Carbon::parse('2026-03-04 05:06:07');
+
+        $this->assertSame($date, Column::make('D', 'd')->cell(['d' => $date]));
     }
 
     public function test_width_and_style(): void

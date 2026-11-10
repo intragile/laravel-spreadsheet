@@ -6,7 +6,6 @@ namespace IntrAgile\LaravelSpreadsheet\Export;
 
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
-use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use IntrAgile\LaravelSpreadsheet\Events\ExportCompleted;
@@ -18,7 +17,6 @@ use Throwable;
  */
 final class ExportJob implements ShouldQueue
 {
-    use Dispatchable;
     use InteractsWithQueue;
     use Queueable;
     use SerializesModels;

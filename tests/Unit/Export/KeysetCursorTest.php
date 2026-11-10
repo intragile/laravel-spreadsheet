@@ -160,8 +160,7 @@ final class KeysetCursorTest extends TestCase
         $this->seedTiesAndNulls();
 
         $this->expectException(LogicException::class);
-        $this->expectExceptionMessage('"city"');
-        $this->expectExceptionMessage('selected');
+        $this->expectExceptionMessageMatches('/"city".*selected/');
 
         iterator_to_array(KeysetCursor::each(fn () => Partner::query()->select('id', 'name'), 'city', 'asc', 2));
     }

@@ -144,11 +144,12 @@ final class Column
     private function normalize(mixed $value): int|float|string|bool|DateTimeInterface|null
     {
         return match (true) {
+            $value instanceof DateTimeInterface => $value,
             $value instanceof BackedEnum => $value->value,
             $value instanceof UnitEnum => $value->name,
             $value instanceof Stringable => (string) $value,
             is_array($value) => json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?: null,
-            is_scalar($value), $value instanceof DateTimeInterface => $value,
+            is_scalar($value) => $value,
             default => null,
         };
     }

@@ -85,11 +85,13 @@ final class ExportDownloadTest extends ExportTestCase
         $this->seedPartners(3);
         $partner = Partner::query()->firstOrFail();
         $partner->contacts()->createMany([['name' => 'A'], ['name' => 'B']]);
+        Partner::query()->where('id', '!=', $partner->id)->firstOrFail()->contacts()->create(['name' => 'Other']);
         $file = $this->tempFile('csv');
 
         $count = Export::fromQuery($partner->contacts())->withColumns([Column::make('Name')])->writeTo($file);
 
         $this->assertSame(2, $count);
+        $this->assertSame([['Name'], ['A'], ['B']], $this->readRows($file));
     }
 
     public function test_iterable_and_lazy_collection_sources(): void
@@ -130,6 +132,21 @@ final class ExportDownloadTest extends ExportTestCase
 
         $this->assertSame(3, $export->writeTo($file));
         $this->assertSame([['Name'], ['Partner 2'], ['Partner 3'], ['Partner 4']], $this->readRows($file));
+    }
+
+    public function test_eloquent_dates_are_written_as_date_cells(): void
+    {
+        Partner::query()->create(['name' => 'Dated', 'founded_at' => '2020-05-06']);
+        $file = $this->tempFile('xlsx');
+
+        Export::fromQuery(Partner::query())
+            ->withColumns([Column::make('Founded At'), Column::make('Created At')])
+            ->writeTo($file);
+
+        $row = $this->readRows($file)[1];
+        $this->assertInstanceOf(\DateTimeImmutable::class, $row[0]);
+        $this->assertSame('2020-05-06', $row[0]->format('Y-m-d'));
+        $this->assertInstanceOf(\DateTimeImmutable::class, $row[1]);
     }
 
     public function test_missing_source_or_columns_throws(): void

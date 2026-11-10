@@ -58,6 +58,28 @@ final class ExportQueueTest extends ExportTestCase
         Event::assertNotDispatched(ExportFailed::class);
     }
 
+    public function test_parameterized_class_based_export_survives_serialization(): void
+    {
+        Storage::fake('exports');
+        $this->seedPartners(6);
+
+        (new MinIdExport(4))->queue('out/min.csv', 'exports');
+
+        $this->assertSame(
+            "Name\r\n\"Partner 4\"\r\n\"Partner 5\"\r\n\"Partner 6\"\r\n",
+            Storage::disk('exports')->get('out/min.csv'),
+        );
+    }
+
+    public function test_connection_and_queue_name_are_applied(): void
+    {
+        Queue::fake();
+
+        (new PartnerNamesExport)->onConnection('redis')->onQueue('exports')->queue('a.xlsx', 'exports');
+
+        Queue::assertPushedOn('exports', ExportJob::class, static fn (ExportJob $job): bool => $job->connection === 'redis');
+    }
+
     public function test_failure_fires_failed_event_and_leaves_no_file(): void
     {
         Storage::fake('exports');
@@ -100,6 +122,21 @@ final class FailingExport extends Export
         yield ['name' => 'ok'];
 
         throw new \RuntimeException('boom');
+    }
+
+    public function columns(): array
+    {
+        return [Column::make('Name')];
+    }
+}
+
+final class MinIdExport extends Export
+{
+    public function __construct(private readonly int $minId) {}
+
+    public function query(): Builder
+    {
+        return Partner::query()->where('id', '>=', $this->minId);
     }
 
     public function columns(): array

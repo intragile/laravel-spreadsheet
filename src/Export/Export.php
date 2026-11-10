@@ -4,14 +4,17 @@ declare(strict_types=1);
 
 namespace IntrAgile\LaravelSpreadsheet\Export;
 
+use Illuminate\Contracts\Bus\Dispatcher;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\Relation;
-use Illuminate\Foundation\Bus\PendingDispatch;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use IntrAgile\Spreadsheet\Style;
 use LogicException;
+use ReflectionClass;
 use RuntimeException;
+use Symfony\Component\HttpFoundation\HeaderUtils;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
@@ -22,8 +25,6 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
  */
 class Export
 {
-    final public function __construct() {}
-
     /** @var Builder<*>|Relation<*, *, *>|null */
     private Builder|Relation|null $fluentQuery = null;
 
@@ -48,10 +49,14 @@ class Export
 
     private ?int $chunkSize = null;
 
+    private ?string $queueConnection = null;
+
+    private ?string $queueName = null;
+
     /** @param  Builder<*>|Relation<*, *, *>  $query */
     public static function fromQuery(Builder|Relation $query): static
     {
-        $export = new static;
+        $export = self::blank();
         $export->fluentQuery = $query;
         $export->fluent = true;
 
@@ -61,11 +66,21 @@ class Export
     /** @param  iterable<mixed>  $rows */
     public static function fromRows(iterable $rows): static
     {
-        $export = new static;
+        $export = self::blank();
         $export->fluentRows = $rows;
         $export->fluent = true;
 
         return $export;
+    }
+
+    /**
+     * Creates an instance without running the constructor, so fluent exports work for subclasses
+     * whose constructors take arguments.
+     */
+    private static function blank(): static
+    {
+        /** @var static */
+        return (new ReflectionClass(static::class))->newInstanceWithoutConstructor();
     }
 
     /**
@@ -177,7 +192,7 @@ class Export
             throw $e;
         }
 
-        return response()->streamDownload(static function () use ($local): void {
+        $response = new StreamedResponse(static function () use ($local): void {
             try {
                 $handle = fopen($local, 'rb');
 
@@ -190,10 +205,15 @@ class Export
                     unlink($local);
                 }
             }
-        }, $filename, [
+        }, 200, [
             'Content-Type' => $this->contentType($filename),
             'Content-Length' => (string) filesize($local),
         ]);
+
+        $fallback = str_replace(['%', '/', '\\'], '_', Str::ascii($filename));
+        $response->headers->set('Content-Disposition', HeaderUtils::makeDisposition(HeaderUtils::DISPOSITION_ATTACHMENT, $filename, $fallback));
+
+        return $response;
     }
 
     /** Writes the export to a filesystem disk and returns the path. */
@@ -248,13 +268,38 @@ class Export
      * Writes the export on the queue. Only class-based exports can be queued, as a query builder,
      * a generator or a column closure cannot be serialized.
      */
-    public function queue(string $path, ?string $disk = null): PendingDispatch
+    public function queue(string $path, ?string $disk = null): mixed
     {
         if ($this->fluent) {
             throw new LogicException('Queued exports must be a class that overrides query() or rows() and columns().');
         }
 
-        return ExportJob::dispatch($this, $path, $disk);
+        $job = new ExportJob($this, $path, $disk);
+
+        if ($this->queueConnection !== null) {
+            $job->onConnection($this->queueConnection);
+        }
+        if ($this->queueName !== null) {
+            $job->onQueue($this->queueName);
+        }
+
+        return app(Dispatcher::class)->dispatch($job);
+    }
+
+    /** Sets the queue connection used by queue(). */
+    public function onConnection(?string $connection): static
+    {
+        $this->queueConnection = $connection;
+
+        return $this;
+    }
+
+    /** Sets the queue name used by queue(). */
+    public function onQueue(?string $queue): static
+    {
+        $this->queueName = $queue;
+
+        return $this;
     }
 
     /** @return iterable<mixed> */
