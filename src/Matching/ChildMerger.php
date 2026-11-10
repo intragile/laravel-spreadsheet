@@ -52,7 +52,7 @@ final class ChildMerger
 
             return $match === null
                 ? $this->create($relation, $attributes)
-                : $this->fill($match, $attributes);
+                : $this->fill($match, $attributes, $canonicalizers);
         }
 
         return ChildMergeOutcome::Unchanged;
@@ -102,11 +102,18 @@ final class ChildMerger
         return ChildMergeOutcome::Added;
     }
 
-    /** @param  array<string, mixed>  $attributes */
-    private function fill(Model $child, array $attributes): ChildMergeOutcome
+    /**
+     * @param  array<string, mixed>  $attributes
+     * @param  array<string, Canonicalizer>  $canonicalizers
+     */
+    private function fill(Model $child, array $attributes, array $canonicalizers): ChildMergeOutcome
     {
         foreach ($attributes as $attribute => $value) {
             if ($this->isBlank($value) || ! $this->isBlank($child->getAttribute($attribute))) {
+                continue;
+            }
+
+            if (isset($canonicalizers[$attribute]) && $canonicalizers[$attribute]->canonicalize($value) === null) {
                 continue;
             }
 

@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
 use IntrAgile\LaravelSpreadsheet\Import\Import;
+use IntrAgile\LaravelSpreadsheet\Matching\Canonicalizers\Canonicalizer;
 
 /**
  * Matches rows against the database with one prefiltered query per rule and row batch.
@@ -28,7 +29,14 @@ final class DatabaseRecordMatcher implements RecordMatcher
         $modelClass = $import->model();
 
         foreach ($import->matchRules() as $rule) {
-            $pending = $this->keyedRows($import, $rule, $valuesByRow, $results);
+            $canonicalizers = $this->keys->canonicalizers($import, $rule);
+            $attributes = [];
+
+            foreach ($rule->fields as $fieldKey) {
+                $attributes[$fieldKey] = $this->keys->field($import, $fieldKey)->attribute();
+            }
+
+            $pending = $this->keyedRows($rule, $canonicalizers, $valuesByRow, $results);
 
             if ($pending === []) {
                 continue;
@@ -37,7 +45,7 @@ final class DatabaseRecordMatcher implements RecordMatcher
             $batchSize = $this->batchSize(count($rule->fields));
 
             foreach (array_chunk($pending, $batchSize, true) as $batch) {
-                $found = $this->lookup($import, $rule, $modelClass, $batch);
+                $found = $this->lookup($rule, $canonicalizers, $attributes, $modelClass, $batch);
 
                 foreach ($batch as $row => $entry) {
                     if (isset($found[$entry['key']])) {
@@ -56,11 +64,12 @@ final class DatabaseRecordMatcher implements RecordMatcher
     /**
      * Rows still unmatched that yield a key for the rule.
      *
+     * @param  array<string, Canonicalizer>  $canonicalizers
      * @param  array<int, array<string, mixed>>  $valuesByRow
      * @param  array<int, MatchResult>  $results
      * @return array<int, array{key: string, parts: array<string, string>, raw: array<string, string>}>
      */
-    private function keyedRows(Import $import, MatchRule $rule, array $valuesByRow, array $results): array
+    private function keyedRows(MatchRule $rule, array $canonicalizers, array $valuesByRow, array $results): array
     {
         $pending = [];
 
@@ -69,7 +78,7 @@ final class DatabaseRecordMatcher implements RecordMatcher
                 continue;
             }
 
-            $parts = $this->keys->parts($import, $rule, static fn (string $key): mixed => $values[$key] ?? null);
+            $parts = $this->keys->parts($canonicalizers, static fn (string $key): mixed => $values[$key] ?? null);
 
             if ($parts !== null) {
                 $raw = [];
@@ -96,11 +105,13 @@ final class DatabaseRecordMatcher implements RecordMatcher
     }
 
     /**
+     * @param  array<string, Canonicalizer>  $canonicalizers
+     * @param  array<string, string>  $attributes  Field key => model attribute.
      * @param  class-string<Model>  $modelClass
      * @param  array<int, array{key: string, parts: array<string, string>, raw: array<string, string>}>  $batch
      * @return array<string, Model> Rule key => record.
      */
-    private function lookup(Import $import, MatchRule $rule, string $modelClass, array $batch): array
+    private function lookup(MatchRule $rule, array $canonicalizers, array $attributes, string $modelClass, array $batch): array
     {
         /** @var Builder<Model> $query */
         $query = $modelClass::query();
@@ -109,11 +120,7 @@ final class DatabaseRecordMatcher implements RecordMatcher
             $query->withoutGlobalScope(SoftDeletingScope::class);
         }
 
-        $columns = [];
-
         foreach ($rule->fields as $fieldKey) {
-            $field = $this->keys->field($import, $fieldKey);
-            $columns[$fieldKey] = $field->attribute();
 
             $canonical = [];
             $raw = [];
@@ -123,9 +130,9 @@ final class DatabaseRecordMatcher implements RecordMatcher
                 $raw[] = $entry['raw'][$fieldKey];
             }
 
-            $this->keys->canonicalizer($import, $rule, $fieldKey)->prefilter(
+            $canonicalizers[$fieldKey]->prefilter(
                 $query,
-                $field->attribute(),
+                $attributes[$fieldKey],
                 array_values(array_unique($canonical)),
                 array_values(array_unique($raw)),
             );
@@ -134,8 +141,10 @@ final class DatabaseRecordMatcher implements RecordMatcher
         $wanted = array_flip(array_column($batch, 'key'));
         $found = [];
 
+        $query->orderBy($query->getModel()->getQualifiedKeyName());
+
         foreach ($query->cursor() as $candidate) {
-            $parts = $this->keys->parts($import, $rule, static fn (string $key): mixed => $candidate->getAttribute($columns[$key]));
+            $parts = $this->keys->parts($canonicalizers, static fn (string $key): mixed => $candidate->getAttribute($attributes[$key]));
 
             if ($parts === null) {
                 continue;

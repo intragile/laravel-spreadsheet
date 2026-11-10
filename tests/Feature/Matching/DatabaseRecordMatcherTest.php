@@ -83,6 +83,39 @@ final class DatabaseRecordMatcherTest extends TestCase
         $this->assertSame(MatchStrength::Suspicious, $results[3]->strength);
     }
 
+    public function test_multi_field_rule_requires_the_same_record(): void
+    {
+        Partner::create(['name' => 'A', 'city' => 'Köln']);
+        Partner::create(['name' => 'B', 'city' => 'Pécs']);
+        $import = new PartnerMatchImport([MatchRule::suspicious('name', 'city')]);
+
+        $this->assertSame([], $import->matcher()->match($import, [2 => ['name' => 'A', 'city' => 'Pécs']]));
+    }
+
+    public function test_unmatched_row_falls_through_to_the_next_rule(): void
+    {
+        $partner = Partner::create(['name' => 'A', 'tax_number' => '12345678-2-42']);
+        $import = new PartnerMatchImport([
+            MatchRule::sure('email'),
+            MatchRule::suspicious('tax_number')->canonicalizeUsing('tax_number', 'tax_number'),
+        ]);
+
+        $results = $import->matcher()->match($import, [2 => ['email' => 'nowhere@x.hu', 'tax_number' => '12345678242']]);
+
+        $this->assertTrue($results[2]->record->is($partner));
+        $this->assertSame(MatchStrength::Suspicious, $results[2]->strength);
+        $this->assertSame('suspicious|tax_number', $results[2]->ruleId);
+    }
+
+    public function test_duplicate_records_resolve_to_the_lowest_key(): void
+    {
+        $first = Partner::create(['name' => 'A', 'email' => 'd@x.hu']);
+        Partner::create(['name' => 'B', 'email' => 'D@x.hu']);
+        $import = new PartnerMatchImport([MatchRule::sure('email')]);
+
+        $this->assertTrue($import->matcher()->match($import, [2 => ['email' => 'd@x.hu']])[2]->record->is($first));
+    }
+
     public function test_blank_part_yields_no_match(): void
     {
         Partner::create(['name' => 'A', 'city' => 'Pécs']);

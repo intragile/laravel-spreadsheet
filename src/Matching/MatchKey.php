@@ -44,17 +44,34 @@ final class MatchKey
     }
 
     /**
+     * Resolves the canonicalizer of every field of a rule once.
+     *
+     * @return array<string, Canonicalizer>
+     */
+    public function canonicalizers(Import $import, MatchRule $rule): array
+    {
+        $resolved = [];
+
+        foreach ($rule->fields as $fieldKey) {
+            $resolved[$fieldKey] = $this->canonicalizer($import, $rule, $fieldKey);
+        }
+
+        return $resolved;
+    }
+
+    /**
      * Canonical parts keyed by field key, or null when any part is blank.
      *
+     * @param  array<string, Canonicalizer>  $canonicalizers  As returned by canonicalizers().
      * @param  callable(string): mixed  $valueOf  Reads the raw value of a field key.
      * @return array<string, string>|null
      */
-    public function parts(Import $import, MatchRule $rule, callable $valueOf): ?array
+    public function parts(array $canonicalizers, callable $valueOf): ?array
     {
         $parts = [];
 
-        foreach ($rule->fields as $fieldKey) {
-            $part = $this->canonicalizer($import, $rule, $fieldKey)->canonicalize($valueOf($fieldKey));
+        foreach ($canonicalizers as $fieldKey => $canonicalizer) {
+            $part = $canonicalizer->canonicalize($valueOf($fieldKey));
 
             if ($part === null || $part === '') {
                 return null;
@@ -73,7 +90,7 @@ final class MatchKey
      */
     public function forValues(Import $import, MatchRule $rule, array $values): ?string
     {
-        $parts = $this->parts($import, $rule, static fn (string $key): mixed => $values[$key] ?? null);
+        $parts = $this->parts($this->canonicalizers($import, $rule), static fn (string $key): mixed => $values[$key] ?? null);
 
         return $parts === null ? null : self::hash($rule, $parts);
     }

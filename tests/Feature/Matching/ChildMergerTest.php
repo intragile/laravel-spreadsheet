@@ -85,6 +85,34 @@ final class ChildMergerTest extends TestCase
         $this->assertSame(1, Contact::query()->count());
     }
 
+    public function test_invalid_key_values_are_not_filled(): void
+    {
+        $this->partner->contacts()->create(['name' => 'Old', 'email' => null, 'phone' => '111222']);
+
+        $outcome = $this->merge(['name' => 'X', 'email' => '   ', 'phone' => '111222']);
+        $this->assertSame(ChildMergeOutcome::Unchanged, $outcome);
+
+        $merger = new ChildMerger;
+        $outcome = $merger->merge(
+            $this->partner->contacts(),
+            ['name' => 'N', 'email' => 'a@x.hu', 'phone' => 'abc'],
+            ['email' => 'email', 'phone' => 'phone'],
+        );
+
+        $this->assertSame(ChildMergeOutcome::Added, $outcome);
+        $this->assertSame('111222', Contact::query()->orderBy('id')->firstOrFail()->phone);
+        $this->assertNull(Contact::query()->orderBy('id')->firstOrFail()->email);
+
+        $this->partner->contacts()->create(['name' => 'Blank', 'email' => 'b@x.hu', 'phone' => null]);
+        $outcome = $merger->merge(
+            $this->partner->contacts(),
+            ['name' => 'N', 'email' => 'b@x.hu', 'phone' => 'abc'],
+            ['email' => 'email', 'phone' => 'phone'],
+        );
+        $this->assertSame(ChildMergeOutcome::Unchanged, $outcome);
+        $this->assertNull(Contact::query()->where('email', 'b@x.hu')->firstOrFail()->phone);
+    }
+
     public function test_row_without_keys_is_unchanged_and_creates_nothing(): void
     {
         $this->assertSame(ChildMergeOutcome::Unchanged, $this->merge(['name' => 'A']));

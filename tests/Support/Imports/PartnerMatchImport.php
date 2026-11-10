@@ -28,6 +28,7 @@ final class PartnerMatchImport extends Import
             Field::make('phone', FieldType::Phone),
             Field::make('domain', FieldType::Domain),
             Field::make('city'),
+            Field::make('tax_number'),
         ];
     }
 
