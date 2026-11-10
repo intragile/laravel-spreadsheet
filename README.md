@@ -110,7 +110,11 @@ characters, `->style()` a core `Style`, and `->asText()` stores the value as tex
 Queries are read with **keyset pagination** (sort column plus primary key, `export.chunk_size` rows per
 page, `->chunkSize()` to override), not with offsets, so rows inserted during the export do not shift
 pages and memory does not depend on the result size. NULL sort values are emitted after the rest, the
-same way on every database.
+same way on every database. The primary key is compared table-qualified, so joined queries and relations
+(`BelongsToMany`, `HasManyThrough`) page correctly; a query without explicit `select()` columns reads only
+the model table's columns, so a joined `id` or pivot column cannot overwrite the model's. `sortBy()` takes
+a model column (qualified with the model table when the query joins others), a `table.column`, or a
+selected alias.
 
 ### Class-based exports
 
@@ -228,7 +232,7 @@ final class PartnerImport extends Import
 `Field::make($key, $type)` takes one of the `FieldType` cases: `Text`, `Email`, `Phone`, `Date`,
 `DateTime`, `Integer`, `Decimal`, `Boolean`, `Enum`, `Country`, `Currency`, `Language`, `Domain`. A field
 is written to the model attribute of the same name unless `->column()` names another one. `->sensitive()`
-blanks the column in the failed-rows file.
+blanks the column in the failed-rows file and keeps its value out of the error messages.
 
 Run it:
 
@@ -319,7 +323,9 @@ PartnerImport::from($path)->mapping($confirmed)->saveTemplate('Monthly partner l
 The template is saved after a completed run. A later file whose header fingerprint matches exactly gets
 the template applied and confirmed automatically. A file whose header set is at least 80% similar
 (Jaccard) only gets it offered as `$result->suggestedTemplate`. Templates are kept per import
-(`Import::key()`, the kebab-cased class name by default). The store is the `MappingTemplateStore`
+(`Import::key()`, the kebab-cased class name by default) and are not separated by user or tenant: in a
+multi-tenant application override `key()` to include the tenant (for example `'partners:'.tenant()->id`),
+or every tenant sees the others' templates and header names. The store is the `MappingTemplateStore`
 interface; bind your own implementation to keep templates elsewhere.
 
 ## Normalizers and locale data
@@ -391,6 +397,13 @@ the upload's format (XLS uploads produce XLSX), with the original headers and ce
 The file is stored on `failed_rows.disk` under `failed_rows.directory` and only created when there is at
 least one such row.
 
+A CSV failed-rows file uses the upload's delimiter and is written as UTF-8 with a byte order mark, so a
+Windows-1250 upload comes back with correct accents. Text that a spreadsheet application would run as a
+formula (starting with `=`, `+`, `-`, `@`, a tab or a carriage return) gets a leading apostrophe, unless
+it is a signed number or phone number: a sign followed only by digits, spaces and `. , ( ) / -` (such as
+`-12,5` or `+36 1 234 5678`) cannot call a function or reference a cell and is kept as is. The apostrophe
+is part of the cell text: if the user re-imports the file without removing it, it is imported too.
+
 The user fixes the rows and uploads the same file again: the status and message columns are left out of
 the header fingerprint, so a saved template still applies and the extra columns are not imported. If
 your users rename those headers, list the extra texts in `failed_rows.headers`. The status and message
@@ -443,10 +456,12 @@ to keep its own bindings within that budget.
 |---|---|
 | `MatchPolicy::Skip` (default) | nothing is written; the row counts as skipped |
 | `MatchPolicy::FillMissing` | only the blank attributes of the record are filled |
-| `MatchPolicy::Overwrite` | the imported values overwrite the record |
+| `MatchPolicy::Overwrite` | the imported values overwrite the record; a blank cell keeps the stored value |
 | a closure | `fn (Model $existing, array $values): ?array` returns the attributes to write; `null` skips |
 
-Updates are validated with `updateRules()`. For full control override `fill(Model $record, array $values, bool $exists)`.
+Updates are validated with `updateRules()`. Under `Overwrite` a blank cell never clears an attribute; to
+clear attributes from blank cells, use a closure policy or override
+`fill(Model $record, array $values, bool $exists)`, which also gives full control otherwise.
 
 ### Soft deletes
 
@@ -504,13 +519,20 @@ so a failing row rolls back alone and becomes an error row. When the database ab
 deadlock or another concurrency error, the chunk is retried once from scratch; a second such error fails
 the import.
 
+The import job runs once (`$tries = 1`). Set the worker's `--timeout` (or the job's `$timeout`) and the
+queue connection's `retry_after` above the longest import you expect; otherwise the worker kills the job
+mid-import, or the queue hands it to a second worker while the first is still running. A job killed
+mid-import leaves the chunks it had committed in the database and rolls back only the chunk in progress;
+no failed-rows file is stored, and its temporary files stay in the system temp directory. Running the same file again is safe when the import has a sure match rule:
+the committed rows then match their records instead of being created twice.
+
 ## Memory
 
 Neither export nor import memory grows with the row count. The test suite checks it: each memory test
 measures the peak memory growth at N and at 10×N rows and fails if the difference reaches 8 MB.
 
 - **Import** (`ImportMemoryTest`, CSV with 10,000 and 100,000 rows, half of them invalid so the
-  failed-rows file is written too): peak growth was **1,035,272 bytes at 10k rows** and **1,047,248
+  failed-rows file is written too): peak growth was **1,036,064 bytes at 10k rows** and **1,048,040
   bytes at 100k rows**, about 12 KB apart.
 - **Export** (`ExportMemoryTest`, 10,000 and 100,000 rows from a file-backed SQLite table through keyset
   pagination to XLSX): asserted under the same 8 MB rule.
@@ -549,8 +571,11 @@ release (full results in [tests/office/README.md](tests/office/README.md)):
   has already aborted.
 - **Record-matching prefilter:** bindings are chunked to stay under SQL Server's 2,100-parameter limit;
   custom canonicalizers must respect the same budget.
-- **XLS uploads** are read whole into memory by `phpoffice/phpspreadsheet` (the cell count is checked
-  first); every other format streams.
+- **XLS uploads** are read whole into memory by `phpoffice/phpspreadsheet`, once per pass: inspection,
+  header and sample scan, and the import itself. The cell count is checked first against
+  `import.max_cells` (default 2,000,000; it also caps how far ODS repeated cells and rows may expand);
+  a larger file fails with a `LimitExceeded` exception before anything is imported. Every other format
+  streams.
 - `ext-pdo_sqlite` is required; without `ext-intl`, IDN domains and non-English country and language
   names are not recognised and accent folding uses the built-in table.
 
@@ -565,6 +590,7 @@ release (full results in [tests/office/README.md](tests/office/README.md)):
 | `export.csv.delimiter` / `bom` / `escape_formulas` | `,` / `false` / `true` | CSV output |
 | `import.chunk_size` | 500 | rows per transaction |
 | `import.lookup_batch` | 500 | rows per existing-record lookup query |
+| `import.max_cells` | 2,000,000 | most cells of an XLS workbook (or expanded ODS sheet) accepted |
 | `import.locales` | `['en']` | locales whose names are accepted |
 | `import.date_formats` | ISO and Hungarian/German layouts | unambiguous date layouts, tried in order |
 | `import.boolean` | en, hu, de, es words | words read as true and false |

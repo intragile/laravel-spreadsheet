@@ -19,8 +19,9 @@ First stable release, built on intragile/php-spreadsheet 1.0.
   plus `columns()`), as a download, to a filesystem disk or to a local file.
 - `Column` definitions with a `data_get` path or closure, number format, width, style and text mode;
   configurable header style, sheet name and sort column.
-- Keyset pagination for query exports (sort column plus primary key, database-independent NULL
-  ordering) instead of offsets.
+- Keyset pagination for query exports (sort column plus table-qualified primary key,
+  database-independent NULL ordering) instead of offsets; joined queries and relations such as
+  `BelongsToMany` and `HasManyThrough` page correctly and read only the model table's columns.
 - Queued class-based exports (`queue()`, `onConnection()`, `onQueue()`) with `ExportCompleted` and
   `ExportFailed` events.
 - CSV output options: delimiter, byte-order mark and formula escaping.
@@ -39,11 +40,14 @@ First stable release, built on intragile/php-spreadsheet 1.0.
   per-field (`Field::normalizeUsing()`) or per-type (`NormalizerRegistry::extend()`) overrides.
 - Row validation with the Laravel validator, with separate rules for new and matched records.
 - Failed-rows file in the upload's format with the original cells plus status and message columns,
-  sensitive fields blanked; it can be fixed and imported again with the same template.
+  sensitive fields blanked and kept out of the messages; a CSV file keeps the upload's delimiter, is
+  UTF-8 with a byte-order mark and escapes formulas (signed numbers excepted). It can be fixed and
+  imported again with the same template.
+- Configurable cell limit for XLS and ODS uploads (`import.max_cells`).
 - Record matching with sure and suspicious `MatchRule`s, built-in email, phone, domain, tax number
   and text canonicalizers, custom canonicalizers, chunked prefilter queries that stay under SQL
   Server's binding limit, in-file duplicate detection through a temporary SQLite key store, match
-  policies (skip, fill missing, overwrite, callback), soft-deleted matches reported instead of
+  policies (skip, fill missing, overwrite that keeps stored values for blank cells, callback), soft-deleted matches reported instead of
   restored, a `ChildMerger` helper for child records and a replaceable `RecordMatcher`.
 - Chunked transactions with a savepoint per row, one retry of a chunk aborted by a deadlock, and
   database error messages hidden unless the application runs in debug mode.

@@ -111,7 +111,12 @@ számformátumot, a `->width()` karakterben mért szélességet, a `->style()` e
 A lekérdezést **kulcs alapú lapozással** olvassa (rendezési oszlop és elsődleges kulcs, oldalanként
 `export.chunk_size` sor, felülírható a `->chunkSize()`-zal), nem offsettel. Így az export közben beszúrt
 sorok nem tolják el az oldalakat, és a memória nem függ az eredmény méretétől. A NULL rendezési értékű
-sorok a többi után jönnek, minden adatbázison ugyanúgy.
+sorok a többi után jönnek, minden adatbázison ugyanúgy. Az elsődleges kulcsot táblanévvel minősítve
+hasonlítja össze, így a joinolt lekérdezések és a relációk (`BelongsToMany`, `HasManyThrough`) is helyesen
+lapozódnak; explicit `select()` oszlopok nélkül csak a modell táblájának oszlopait olvassa, így egy
+joinolt `id` vagy pivotoszlop nem írhatja felül a modellét. A `sortBy()` a modell egy oszlopát (ezt a
+modell táblájával minősíti, ha a lekérdezés más táblát is joinol), egy `tábla.oszlop` alakot vagy egy
+kiválasztott aliast fogad.
 
 ### Osztály alapú export
 
@@ -231,7 +236,7 @@ final class PartnerImport extends Import
 A `Field::make($key, $type)` a `FieldType` valamelyik esetét kapja: `Text`, `Email`, `Phone`, `Date`,
 `DateTime`, `Integer`, `Decimal`, `Boolean`, `Enum`, `Country`, `Currency`, `Language`, `Domain`. A mező a
 modell azonos nevű attribútumába kerül, hacsak a `->column()` nem nevez meg másikat. A `->sensitive()`
-mező oszlopa üresen kerül a hibás sorok fájljába.
+mező oszlopa üresen kerül a hibás sorok fájljába, és az értéke a hibaüzenetekben sem jelenik meg.
 
 Futtatás:
 
@@ -324,8 +329,11 @@ PartnerImport::from($path)->mapping($confirmed)->saveTemplate('Havi partnerlista
 A sablon egy sikeresen lefutott import után mentődik. Ha egy későbbi fájl fejléc-ujjlenyomata pontosan
 egyezik, a sablont a csomag automatikusan alkalmazza és jóváhagyottnak tekinti. Ha a fejléchalmaz
 legalább 80%-ban hasonló (Jaccard), a sablont csak felajánlja a `$result->suggestedTemplate` mezőben. A
-sablonok importonként különülnek el (`Import::key()`, alapból az osztálynév kebab-case alakja). A tároló
-a `MappingTemplateStore` interfész; saját implementáció bekötésével máshol is tárolhatók a sablonok.
+sablonok importonként különülnek el (`Import::key()`, alapból az osztálynév kebab-case alakja),
+felhasználó vagy bérlő szerint nem: több bérlős alkalmazásban írd felül a `key()` metódust úgy, hogy a
+bérlőt is tartalmazza (például `'partners:'.tenant()->id`), különben minden bérlő látja a többiek sablonjait
+és fejlécneveit. A tároló a `MappingTemplateStore` interfész; saját implementáció bekötésével máshol is
+tárolhatók a sablonok.
 
 ## Normalizálók és nyelvi adatok
 
@@ -398,6 +406,14 @@ cellákkal, plusz két oszloppal, ezek az `Import status` (`Error`, `Skipped`, `
 `Import message`. Az érzékeny mezők üresen maradnak. A fájl a `failed_rows.disk` diskre, a
 `failed_rows.directory` mappába kerül, és csak akkor jön létre, ha legalább egy ilyen sor van.
 
+A CSV formátumú hibás sorok fájlja a feltöltés elválasztójelét használja, és UTF-8 kódolással, bájtsorrend-
+jelzővel (BOM) íródik, így egy Windows-1250 kódolású feltöltés is helyes ékezetekkel jön vissza. Az olyan
+szöveg, amelyet egy táblázatkezelő képletként futtatna (`=`, `+`, `-`, `@`, tabulátor vagy kocsivissza az
+elején), aposztróf előtagot kap, kivéve ha előjeles szám vagy telefonszám: egy előjel, amelyet csak
+számjegyek, szóközök és `. , ( ) / -` követnek (például `-12,5` vagy `+36 1 234 5678`), nem hívhat
+függvényt és nem hivatkozhat cellára, ezért változatlan marad. Az aposztróf a cella szövegének része: ha a
+felhasználó eltávolítás nélkül tölti fel újra a fájlt, az aposztróf is betöltődik.
+
 A felhasználó kijavítja a sorokat, és ugyanazt a fájlt tölti fel újra: a státusz- és az üzenetoszlop nem
 számít bele a fejléc-ujjlenyomatba, így a mentett sablon ekkor is érvényes, és a két plusz oszlop nem
 töltődik be. Ha a felhasználók átnevezik ezeket a fejléceket, a további szövegeket a
@@ -456,11 +472,12 @@ Az `onMatch()` dönti el, mi történjen egy biztos szabállyal megtalált rekor
 |---|---|
 | `MatchPolicy::Skip` (alapértelmezés) | semmi sem íródik; a sor kihagyottnak számít |
 | `MatchPolicy::FillMissing` | csak a rekord üres attribútumai töltődnek ki |
-| `MatchPolicy::Overwrite` | a betöltött értékek felülírják a rekordot |
+| `MatchPolicy::Overwrite` | a betöltött értékek felülírják a rekordot; üres cella a tárolt értéket megtartja |
 | closure | `fn (Model $existing, array $values): ?array` a kiírandó attribútumokat adja vissza; `null` esetén a sor kimarad |
 
-A frissítéseket az `updateRules()` validálja. Teljes kontrollhoz írd felül a
-`fill(Model $record, array $values, bool $exists)` metódust.
+A frissítéseket az `updateRules()` validálja. `Overwrite` mellett üres cella soha nem töröl attribútumot;
+ha az üres cellák törölték volna az értéket, használj closure-szabályt, vagy írd felül a
+`fill(Model $record, array $values, bool $exists)` metódust, amely egyébként is teljes kontrollt ad.
 
 ### Kukázott (soft-deleted) rekordok
 
@@ -521,14 +538,23 @@ savepointtal, így egy hibás sor egyedül görgetődik vissza, és hibás sorr�
 darabot deadlock vagy más párhuzamossági hiba miatt megszakít, a darab egyszer, elölről újrafut; egy
 második ilyen hiba leállítja az importot.
 
+Az import job egyszer fut (`$tries = 1`). A worker `--timeout` értékét (vagy a job `$timeout`
+tulajdonságát) és a queue-kapcsolat `retry_after` értékét állítsd a leghosszabb várható importnál
+nagyobbra; különben a worker az import közepén leállítja a jobot, vagy a queue egy második workernek is
+kiadja, miközben az első még fut. Az import közben leállított job az addig véglegesített darabokat az
+adatbázisban hagyja, csak a folyamatban lévő darab görgetődik vissza; hibás sorok fájlja nem mentődik, az ideiglenes fájljai
+pedig a rendszer ideiglenes mappájában maradnak. Ha
+az importnak van biztos párosítási szabálya, ugyanannak a fájlnak az újrafuttatása biztonságos: a már
+beírt sorok ekkor a rekordjukkal párosulnak, nem jönnek létre másodszor.
+
 ## Memória
 
 Sem az export, sem az import memóriaigénye nem nő a sorok számával. A tesztkészlet ezt ellenőrzi: minden
 memóriateszt N és 10×N sornál méri a csúcsmemória növekedését, és elbukik, ha a különbség eléri a 8 MB-ot.
 
 - **Import** (`ImportMemoryTest`, CSV 10 000 és 100 000 sorral, a sorok fele hibás, így a hibás sorok
-  fájlja is íródik): a csúcsmemória növekedése **10 ezer sornál 1 035 272 bájt**, **100 ezer sornál
-  1 047 248 bájt** volt, a különbség nagyjából 12 KB.
+  fájlja is íródik): a csúcsmemória növekedése **10 ezer sornál 1 036 064 bájt**, **100 ezer sornál
+  1 048 040 bájt** volt, a különbség nagyjából 12 KB.
 - **Export** (`ExportMemoryTest`, 10 000 és 100 000 sor egy fájl alapú SQLite-táblából, kulcs alapú
   lapozással, XLSX-be): ugyanazzal a 8 MB-os szabállyal ellenőrizve.
 
@@ -570,8 +596,11 @@ LibreOffice és a Numbers alkalmazásban (a teljes eredmény a
   tranzakcióban futna, amelyet az adatbázis már megszakított.
 - **A rekordpárosítás előszűrője:** a bindingek kötegekre bomlanak, hogy az SQL Server 2100 paraméteres
   korlátja alatt maradjanak; a saját kanonizálóknak is ehhez a kerethez kell igazodniuk.
-- **XLS-feltöltés:** ezt a `phpoffice/phpspreadsheet` egészben a memóriába olvassa (előtte a cellaszámot
-  ellenőrizzük); minden más formátum folyamatosan olvasódik.
+- **XLS-feltöltés:** ezt a `phpoffice/phpspreadsheet` minden menetben egészben a memóriába olvassa:
+  a vizsgálatkor, a fejléc és a mintasorok beolvasásakor és magánál az importnál. Előtte a cellaszámot
+  az `import.max_cells` értékével veti össze (alapból 2 000 000; ez az ODS ismételt celláinak és sorainak
+  kibontását is korlátozza); a nagyobb fájl `LimitExceeded` kivétellel, betöltés előtt elbukik. Minden
+  más formátum folyamatosan olvasódik.
 - Az `ext-pdo_sqlite` kötelező; `ext-intl` nélkül az IDN domaineket és a nem angol ország- és nyelvneveket
   a csomag nem ismeri fel, az ékezetek elhagyása pedig a beépített táblázattal történik.
 
@@ -586,6 +615,7 @@ LibreOffice és a Numbers alkalmazásban (a teljes eredmény a
 | `export.csv.delimiter` / `bom` / `escape_formulas` | `,` / `false` / `true` | CSV-kimenet |
 | `import.chunk_size` | 500 | sorok száma tranzakciónként |
 | `import.lookup_batch` | 500 | sorok száma meglévő rekordokat kereső lekérdezésenként |
+| `import.max_cells` | 2 000 000 | egy XLS-munkafüzet (vagy kibontott ODS-munkalap) legnagyobb elfogadott cellaszáma |
 | `import.locales` | `['en']` | ezeken a nyelveken fogad el neveket |
 | `import.date_formats` | ISO és magyar/német elrendezések | egyértelmű dátumformátumok, sorrendben kipróbálva |
 | `import.boolean` | angol, magyar, német, spanyol szavak | igaznak és hamisnak olvasott szavak |
