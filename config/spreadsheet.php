@@ -18,6 +18,9 @@ return [
     ],
 
     'import' => [
+        // Rows per existing-record lookup query; keeps bindings under driver limits.
+        'lookup_batch' => 500,
+
         // Locales whose names are accepted for countries, languages and enum labels.
         'locales' => ['en'],
 

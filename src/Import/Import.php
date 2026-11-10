@@ -7,8 +7,10 @@ namespace IntrAgile\LaravelSpreadsheet\Import;
 use Closure;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str;
+use IntrAgile\LaravelSpreadsheet\Matching\DatabaseRecordMatcher;
 use IntrAgile\LaravelSpreadsheet\Matching\MatchPolicy;
 use IntrAgile\LaravelSpreadsheet\Matching\MatchRule;
+use IntrAgile\LaravelSpreadsheet\Matching\RecordMatcher;
 
 /**
  * Declarative description of an import: target model, fields, duplicate rules and
@@ -31,6 +33,12 @@ abstract class Import
     public function matchRules(): array
     {
         return [];
+    }
+
+    /** The matcher that finds existing records; override to match through accessors or relations. */
+    public function matcher(): RecordMatcher
+    {
+        return app(DatabaseRecordMatcher::class);
     }
 
     /**

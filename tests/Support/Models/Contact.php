@@ -7,6 +7,11 @@ namespace IntrAgile\LaravelSpreadsheet\Tests\Support\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+/**
+ * @property string $name
+ * @property string|null $email
+ * @property string|null $phone
+ */
 final class Contact extends Model
 {
     protected $table = 'contacts';
