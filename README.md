@@ -113,8 +113,11 @@ pages and memory does not depend on the result size. NULL sort values are emitte
 same way on every database. The primary key is compared table-qualified, so joined queries and relations
 (`BelongsToMany`, `HasManyThrough`) page correctly; a query without explicit `select()` columns reads only
 the model table's columns, so a joined `id` or pivot column cannot overwrite the model's. `sortBy()` takes
-a model column (qualified with the model table when the query joins others), a `table.column`, or a
-selected alias.
+a column of the model table, plain or qualified with the model's own table (a plain one is qualified
+automatically when the query joins others), or a column alias of the select clause, which is compared
+through the column behind it. A column of a joined table throws `LogicException`: select it under an
+alias (`->addSelect('partners.name as partner_name')`) and sort by the alias. A `selectRaw()` alias is
+refused too, because a raw expression cannot be compared portably.
 
 ### Class-based exports
 
@@ -573,9 +576,11 @@ release (full results in [tests/office/README.md](tests/office/README.md)):
   custom canonicalizers must respect the same budget.
 - **XLS uploads** are read whole into memory by `phpoffice/phpspreadsheet`, once per pass: inspection,
   header and sample scan, and the import itself. The cell count is checked first against
-  `import.max_cells` (default 2,000,000; it also caps how far ODS repeated cells and rows may expand);
-  a larger file fails with a `LimitExceeded` exception before anything is imported. Every other format
-  streams.
+  `import.max_cells` (default 2,000,000), so a larger XLS file fails before anything is imported. The
+  same setting caps how far ODS repeated cells and rows may expand; ODS is streamed, so that limit can
+  be reached during the import, after earlier chunks were committed, and the message then says so.
+  Both throw `IntrAgile\LaravelSpreadsheet\Exceptions\ImportLimitExceeded` (a core `LimitExceeded`;
+  `$partial` tells whether rows may have been imported). Every other format streams.
 - `ext-pdo_sqlite` is required; without `ext-intl`, IDN domains and non-English country and language
   names are not recognised and accent folding uses the built-in table.
 

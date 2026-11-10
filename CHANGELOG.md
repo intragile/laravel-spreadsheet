@@ -21,7 +21,8 @@ First stable release, built on intragile/php-spreadsheet 1.0.
   configurable header style, sheet name and sort column.
 - Keyset pagination for query exports (sort column plus table-qualified primary key,
   database-independent NULL ordering) instead of offsets; joined queries and relations such as
-  `BelongsToMany` and `HasManyThrough` page correctly and read only the model table's columns.
+  `BelongsToMany` and `HasManyThrough` page correctly and read only the model table's columns; a
+  joined table's column is sorted through a selected column alias.
 - Queued class-based exports (`queue()`, `onConnection()`, `onQueue()`) with `ExportCompleted` and
   `ExportFailed` events.
 - CSV output options: delimiter, byte-order mark and formula escaping.
@@ -43,7 +44,8 @@ First stable release, built on intragile/php-spreadsheet 1.0.
   sensitive fields blanked and kept out of the messages; a CSV file keeps the upload's delimiter, is
   UTF-8 with a byte-order mark and escapes formulas (signed numbers excepted). It can be fixed and
   imported again with the same template.
-- Configurable cell limit for XLS and ODS uploads (`import.max_cells`).
+- Configurable cell limit for XLS and ODS uploads (`import.max_cells`); safety-limit failures throw
+  `ImportLimitExceeded`, which tells whether earlier chunks may already be imported.
 - Record matching with sure and suspicious `MatchRule`s, built-in email, phone, domain, tax number
   and text canonicalizers, custom canonicalizers, chunked prefilter queries that stay under SQL
   Server's binding limit, in-file duplicate detection through a temporary SQLite key store, match

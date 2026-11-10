@@ -114,9 +114,13 @@ sorok nem tolják el az oldalakat, és a memória nem függ az eredmény méret�
 sorok a többi után jönnek, minden adatbázison ugyanúgy. Az elsődleges kulcsot táblanévvel minősítve
 hasonlítja össze, így a joinolt lekérdezések és a relációk (`BelongsToMany`, `HasManyThrough`) is helyesen
 lapozódnak; explicit `select()` oszlopok nélkül csak a modell táblájának oszlopait olvassa, így egy
-joinolt `id` vagy pivotoszlop nem írhatja felül a modellét. A `sortBy()` a modell egy oszlopát (ezt a
-modell táblájával minősíti, ha a lekérdezés más táblát is joinol), egy `tábla.oszlop` alakot vagy egy
-kiválasztott aliast fogad.
+joinolt `id` vagy pivotoszlop nem írhatja felül a modellét. A `sortBy()` a modell táblájának egy
+oszlopát fogadja, önmagában vagy a modell saját táblanevével minősítve (az önmagában álló oszlopot a
+csomag automatikusan minősíti, ha a lekérdezés más táblát is joinol), vagy a select egy oszlopaliasát,
+amelyet a mögötte álló oszlopon keresztül hasonlít össze. Egy joinolt tábla oszlopa `LogicException`
+kivételt dob: válaszd ki aliasszal (`->addSelect('partners.name as partner_name')`), és az alias szerint
+rendezz. A `selectRaw()` aliasát is elutasítja, mert egy nyers kifejezés nem hasonlítható össze
+hordozhatóan.
 
 ### Osztály alapú export
 
@@ -476,7 +480,7 @@ Az `onMatch()` dönti el, mi történjen egy biztos szabállyal megtalált rekor
 | closure | `fn (Model $existing, array $values): ?array` a kiírandó attribútumokat adja vissza; `null` esetén a sor kimarad |
 
 A frissítéseket az `updateRules()` validálja. `Overwrite` mellett üres cella soha nem töröl attribútumot;
-ha az üres cellák törölték volna az értéket, használj closure-szabályt, vagy írd felül a
+ha üres cellák alapján attribútumokat szeretnél törölni, használj closure-szabályt, vagy írd felül a
 `fill(Model $record, array $values, bool $exists)` metódust, amely egyébként is teljes kontrollt ad.
 
 ### Kukázott (soft-deleted) rekordok
@@ -598,9 +602,13 @@ LibreOffice és a Numbers alkalmazásban (a teljes eredmény a
   korlátja alatt maradjanak; a saját kanonizálóknak is ehhez a kerethez kell igazodniuk.
 - **XLS-feltöltés:** ezt a `phpoffice/phpspreadsheet` minden menetben egészben a memóriába olvassa:
   a vizsgálatkor, a fejléc és a mintasorok beolvasásakor és magánál az importnál. Előtte a cellaszámot
-  az `import.max_cells` értékével veti össze (alapból 2 000 000; ez az ODS ismételt celláinak és sorainak
-  kibontását is korlátozza); a nagyobb fájl `LimitExceeded` kivétellel, betöltés előtt elbukik. Minden
-  más formátum folyamatosan olvasódik.
+  az `import.max_cells` értékével veti össze (alapból 2 000 000), így a nagyobb XLS-fájl még a betöltés
+  előtt elbukik. Ugyanez a beállítás korlátozza az ODS ismételt celláinak és sorainak kibontását; az ODS
+  folyamatosan olvasódik, ezért ez a korlát az import közben, már véglegesített darabok után is elérhető,
+  és ilyenkor az üzenet ezt jelzi. Mindkét eset
+  `IntrAgile\LaravelSpreadsheet\Exceptions\ImportLimitExceeded` kivételt dob (ez egy core
+  `LimitExceeded`; a `$partial` jelzi, hogy betöltődhettek-e már sorok). Minden más formátum
+  folyamatosan olvasódik.
 - Az `ext-pdo_sqlite` kötelező; `ext-intl` nélkül az IDN domaineket és a nem angol ország- és nyelvneveket
   a csomag nem ismeri fel, az ékezetek elhagyása pedig a beépített táblázattal történik.
 
