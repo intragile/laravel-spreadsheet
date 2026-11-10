@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Builder;
 use IntrAgile\LaravelSpreadsheet\Export\Column;
 use IntrAgile\LaravelSpreadsheet\Export\Export;
 use IntrAgile\LaravelSpreadsheet\Tests\Support\Models\Partner;
+use IntrAgile\Spreadsheet\Spreadsheet;
 use IntrAgile\Spreadsheet\Style;
 use PHPUnit\Framework\Attributes\DataProvider;
 
@@ -67,6 +68,17 @@ final class ExportDownloadTest extends ExportTestCase
         $ods = $this->tempFile('ods');
         Export::fromRows([['a' => 1, 'b' => 2]])->withColumns([Column::make('A'), Column::make('B')])->writeTo($ods);
         $this->assertStringContainsString('table:display-filter-buttons="true"', $this->zipEntry($ods, 'content.xml'));
+    }
+
+    public function test_empty_export_is_a_valid_header_only_file(): void
+    {
+        $file = $this->tempFile('xlsx');
+        $count = Export::fromRows([])->withColumns([Column::make('A'), Column::make('B')])->writeTo($file);
+
+        $this->assertSame(0, $count);
+        $this->assertMatchesRegularExpression('/<autoFilter ref="A1:B1"/', $this->zipEntry($file, 'xl/worksheets/sheet1.xml'));
+        $rows = iterator_to_array(Spreadsheet::read($file)->rows(), false);
+        $this->assertSame([['A', 'B']], $rows);
     }
 
     public function test_query_source_uses_keyset_cursor(): void

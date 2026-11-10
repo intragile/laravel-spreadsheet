@@ -12,6 +12,7 @@ use IntrAgile\LaravelSpreadsheet\Import\Pipeline\RowStatus;
 use IntrAgile\LaravelSpreadsheet\Tests\TestCase;
 use IntrAgile\Spreadsheet\Format;
 use IntrAgile\Spreadsheet\Spreadsheet;
+use ZipArchive;
 
 final class FailedRowsWriterTest extends TestCase
 {
@@ -43,7 +44,7 @@ final class FailedRowsWriterTest extends TestCase
             $path = $writer->finish('local', 'spreadsheet/failed-rows');
             $this->assertNotNull($path);
 
-            $zip = new \ZipArchive;
+            $zip = new ZipArchive;
             $this->assertTrue($zip->open(Storage::disk('local')->path($path)) === true);
             $this->assertMatchesRegularExpression($pattern, (string) $zip->getFromName($entry));
             $zip->close();
